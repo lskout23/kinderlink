@@ -1,0 +1,26 @@
+/* Shared confirmations, independent of the compact/sidebar theme. */
+.app-confirm-dialog {
+  box-sizing: border-box; width: min(490px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 24px;
+  border: 1px solid #d8e5da; border-radius: 16px; background: #fff; color: #243b30;
+  font-family: var(--font-ui, system-ui, sans-serif); box-shadow: 0 24px 80px rgb(22 40 28 / 22%);
+}
+.app-confirm-dialog::backdrop { background: rgb(19 39 29 / 44%); backdrop-filter: blur(3px); }
+.app-confirm-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.app-confirm-symbol { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 14px; background: #e5f1e8; color: #287644; }
+.app-confirm-symbol svg { width: 26px; height: 26px; }
+.app-confirm-close { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 10px; background: #f3f6f4; color: #586c5f; cursor: pointer; }
+.app-confirm-close svg { width: 21px; height: 21px; pointer-events: none; }
+.app-confirm-dialog h2 { font-size: 21px; line-height: 1.4; margin: 18px 0 10px; color: #253e30; }
+.app-confirm-dialog p { font-size: 14px; line-height: 1.7; margin: 12px 0; overflow-wrap: anywhere; white-space: pre-line; }
+.app-confirm-dialog #app-confirm-note { padding: 12px; border: 1px solid #d8e9db; border-radius: 9px; background: #eff7f0; color: #355d40; font-size: 12px; }
+.app-confirm-dialog.is-danger { border-color: #ead4d1; }
+.app-confirm-dialog.is-danger .app-confirm-symbol { background: #fce9e6; color: #ad3632; }
+.app-confirm-dialog.is-danger #app-confirm-note { background: #fff3ed; border-color: #f0d7c5; color: #854420; }
+.app-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.modern-ui .app-confirm-actions .btn { min-height: 44px; }
+@media (max-width: 480px) {
+  .app-confirm-dialog { padding: 20px; }
+  .app-confirm-actions { flex-direction: column; }
+  .app-confirm-actions .btn { width: 100%; }
+}

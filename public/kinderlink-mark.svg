@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">KinderLink</title>
+  <desc id="desc">Two rounded teal and coral links form a heart on a cream badge.</desc>
+  <rect width="128" height="128" rx="28" fill="#fff8ef"/>
+  <rect x="39" y="30" width="30" height="64" rx="15" transform="rotate(-40 54 62)" fill="none" stroke="#087f83" stroke-width="10"/>
+  <rect x="59" y="30" width="30" height="64" rx="15" transform="rotate(40 74 62)" fill="none" stroke="#fff8ef" stroke-width="16"/>
+  <rect x="59" y="30" width="30" height="64" rx="15" transform="rotate(40 74 62)" fill="none" stroke="#e87d6c" stroke-width="10"/>
+</svg>

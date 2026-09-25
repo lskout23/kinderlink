@@ -1,0 +1,9 @@
+{
+  "folders": [{ "path": "." }],
+  "settings": {
+    "files.encoding": "utf8",
+    "files.eol": "\n",
+    "files.exclude": { "**/.git": true },
+    "search.exclude": { "storage/**": true, "vendor/**": true }
+  }
+}

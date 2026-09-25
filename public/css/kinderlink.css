@@ -1,0 +1,124 @@
+/* KinderLink branding. Loaded last; retain all existing geometry, typography,
+   compact density, responsive breakpoints, interaction and print behavior. */
+:root {
+  --kl-teal: #087f83;
+  --kl-teal-dark: #075b60;
+  --kl-teal-soft: #eef8f6;
+  --kl-teal-tint: #d9eeea;
+  --kl-teal-border: #b8d8d3;
+  --kl-amber-dark: #805b20;
+  --kl-amber-soft: #fff4d3;
+  --kl-amber-border: #e8d8ad;
+  --kl-cream: #faf7ee;
+  --kl-surface: #fffdf7;
+  --brand: var(--kl-teal);
+  --green: var(--kl-teal-dark);
+  --green-dark: #16474b;
+  --green-light: var(--kl-teal-soft);
+  --primary: var(--kl-teal-dark);
+  --primary-dark: #16474b;
+  --success: var(--kl-teal-dark);
+  --orange: var(--kl-amber-dark);
+  --orange-dark: #664718;
+  --orange-light: var(--kl-amber-soft);
+  --text: #243e41;
+  --text-muted: #566c6e;
+  --border: #d7e4df;
+  --bg: var(--kl-cream);
+}
+
+/* Override locally scoped legacy tone tokens, not their sizing tokens. */
+.modern-ui.compact-ui,
+.compact-ui[data-ui-tone],
+.compact-ui [data-ui-tone],
+.compact-ui #activity-panels > .section-box:first-child,
+.compact-ui #activity-panels > .section-box:last-child {
+  --bg: var(--kl-cream);
+  --tone: var(--kl-teal);
+  --tone-dark: var(--kl-teal-dark);
+  --tone-soft: var(--kl-teal-soft);
+  --tone-tint: var(--kl-teal-tint);
+  --tone-border: var(--kl-teal-border);
+}
+.compact-ui [data-ui-tone="amber"] {
+  --tone: var(--kl-amber-dark);
+  --tone-dark: var(--kl-amber-dark);
+  --tone-soft: var(--kl-amber-soft);
+  --tone-tint: #f5e8c6;
+  --tone-border: var(--kl-amber-border);
+}
+
+/* Color overrides are screen-only so the original print styles still win. */
+@media screen {
+  .modern-ui.compact-ui { background: var(--bg); }
+  .modern-ui.public-page {
+    background: var(--kl-cream);
+  }
+  .compact-ui #app-header {
+    background: var(--kl-surface);
+    border-top-color: var(--kl-teal);
+  }
+  .compact-ui #app-header .user-avatar {
+    background: var(--kl-teal-tint);
+    border-color: var(--kl-teal-border);
+    color: var(--kl-teal-dark);
+  }
+  .modern-ui #app-nav { background: var(--kl-surface); border-color: var(--border); }
+  .compact-ui #app-nav ul ul { border-color: var(--border); }
+  .modern-ui #app-nav > ul > li > a { color: var(--text-muted); }
+  .modern-ui #app-nav a:hover { background: var(--kl-teal-soft); color: var(--kl-teal-dark); }
+  .compact-ui #app-nav > ul > li.active > a,
+  .compact-ui #app-nav > ul > li.open > a,
+  .modern-ui #app-nav a[aria-current="page"] { background: #dbefdf; color: #24683b; }
+  .modern-ui :is(a, button, input, select, textarea, [tabindex]):focus-visible { outline-color: var(--kl-teal-dark); }
+  .modern-ui :is(.filter-bar, .form-group, .login-field) :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+  .modern-ui #reply-body,
+  .modern-ui #new-thread-modal :is(input, select, textarea),
+  .compact-ui .msg-table textarea { border-color: #819e9b; }
+  .modern-ui :is(.filter-bar, .form-group, .login-field) :is(input, select, textarea):focus {
+    border-color: var(--kl-teal-dark);
+    box-shadow: 0 0 0 3px rgb(8 127 131 / 16%);
+  }
+  .modern-ui .filter-bar { background: var(--kl-teal-soft); }
+  .compact-ui .filter-bar label { color: var(--text-muted); }
+  .modern-ui .btn, .modern-ui .btn-tool { background: var(--kl-teal-soft); color: var(--kl-teal-dark); }
+  .modern-ui .btn-primary { background: var(--kl-teal-tint); border-color: var(--kl-teal-border); color: var(--kl-teal-dark); }
+  .modern-ui .btn-accent, .modern-ui .btn-success, .modern-ui .btn-send-email {
+    background: var(--kl-teal-dark); border-color: var(--kl-teal-dark); color: #fff;
+  }
+  .compact-ui #btn-send-email {
+    background: #2864a3; border-color: #22558c; color: #fff;
+  }
+  .modern-ui .btn-secondary { background: #fff; border-color: var(--border); color: var(--kl-teal-dark); }
+  .compact-ui #btn-preview-email { background: var(--kl-amber-soft); border-color: var(--kl-amber-border); color: var(--kl-amber-dark); }
+  /* Keep destructive and warning actions semantically distinct. */
+  .modern-ui .btn-danger { background: var(--red); border-color: #a42e2e; color: #fff; }
+  .modern-ui .btn-danger-outline { background: #fff3f2; border-color: #e8bdbc; color: #a52f2f; }
+  .compact-ui .btn-clear-confirm { background: #925916; border-color: #815017; color: #fff; }
+  .modern-ui .data-table th { background: var(--kl-teal-soft); color: var(--kl-teal-dark); border-color: var(--border); }
+  .modern-ui .data-table td { border-color: var(--border); }
+  .modern-ui .data-table tr:nth-child(even) td { background: #fffcf7; }
+  .modern-ui .data-table tr:hover td { background: var(--kl-teal-soft); }
+  .modern-ui .table-toolbar, .modern-ui .modal-footer { background: #fffcf7; }
+  .modern-ui .today-reports { border-color: var(--kl-teal-border); }
+  .modern-ui .login-features span { background: var(--kl-teal-tint); color: var(--kl-teal-dark); }
+    .modern-ui .login-features span:last-child { background: var(--kl-amber-soft); color: var(--kl-amber-dark); }
+    .modern-ui .stat-card-warm .stat-icon { background: var(--kl-amber-soft); color: var(--kl-amber-dark); }
+  .compact-ui .stat-label, .dashboard-link-copy small { color: var(--text-muted); }
+    /* Keep the reference's distinct pastel tiles and blue/rose status cards.
+      Only replace the white dashboard surfaces with a soft ivory cream. */
+  .compact-ui .dashboard-cards .stat-card,
+    .compact-ui .dashboard-cards .dash-section { border-color: var(--border); background: var(--kl-surface); }
+    .compact-ui .dashboard-cards .stat-card:nth-child(4) { background: #eaf7ff; }
+    .compact-ui .dashboard-cards .stat-card:last-child { background: #fff0f1; }
+    .compact-ui .dashboard-cards .dash-icon-link .icon { background: var(--kl-surface); }
+    .compact-ui .dashboard-finance .dash-icon-link .icon { background: var(--card-bg); }
+  .app-confirm-dialog, .compact-ui .clear-form-dialog { border-color: var(--border); color: var(--text); }
+  .app-confirm-dialog h2, .compact-ui .clear-form-dialog h2 { color: var(--green-dark); }
+  .app-confirm-symbol { background: var(--kl-teal-tint); color: var(--kl-teal-dark); }
+  .app-confirm-close, .compact-ui .clear-form-close { background: var(--kl-teal-soft); color: var(--text-muted); }
+  .app-confirm-dialog #app-confirm-note, .compact-ui .clear-form-note {
+    background: var(--kl-teal-soft); border-color: var(--kl-teal-border); color: var(--kl-teal-dark);
+  }
+  .app-confirm-dialog.is-danger #app-confirm-note { background: #fff3ed; border-color: #f0d7c5; color: #854420; }
+}

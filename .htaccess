@@ -1,0 +1,34 @@
+Options -Indexes
+RewriteEngine On
+
+# Hide server version details from default Apache responses.
+ServerSignature Off
+
+# Security headers for browser-side hardening.
+<IfModule mod_headers.c>
+	Header always set X-Content-Type-Options "nosniff"
+	Header always set X-Frame-Options "SAMEORIGIN"
+	Header always set Referrer-Policy "strict-origin-when-cross-origin"
+	Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+</IfModule>
+
+# Block direct web access to sensitive env and setup files.
+<FilesMatch "^(?:\..*|composer\.(?:json|lock|phar)|composer-setup\.php|.*\.(?:md|sql|log|code-workspace))$">
+	<IfModule mod_authz_core.c>
+		Require all denied
+	</IfModule>
+	<IfModule !mod_authz_core.c>
+		Deny from all
+	</IfModule>
+</FilesMatch>
+
+# Block direct web access to internal application directories.
+RewriteRule (^|/)\.(?!well-known(?:/|$)) - [F,L,NC]
+RewriteRule ^(?:config|core|controllers|views|database|models|storage|tools|vendor)(?:/|$) - [F,L,NC]
+
+# Allow direct access to existing files and directories
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Route everything else to index.php
+RewriteRule ^ index.php [QSA,L]

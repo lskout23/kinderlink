@@ -1,0 +1,2 @@
+# Optional asset regeneration only; not needed to run the PHP application.
+Pillow>=10.4,<11
