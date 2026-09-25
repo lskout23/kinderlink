@@ -91,7 +91,7 @@ function loadActivities(type) {
         '<td>' + esc(r.name) + '</td>' +
         '<td class="text-center">' +
           '<a href="#" class="btn btn-sm btn-primary" onclick="openActModal('+r.id+',\''+r.type+'\')">✏️</a> ' +
-          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteActivity('+r.id+',\''+r.type+'\')">🗑️</a>' +
+          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteActivity('+r.id+',\''+r.type+'\');return false;">🗑️</a>' +
         '</td>' +
       '</tr>';
     });
@@ -139,12 +139,23 @@ function saveActivity() {
   });
 }
 
+var activityDeletePending = false;
 async function deleteActivity(id, type) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/activities/delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα διαγραφής.','danger'); return; }
+  if (activityDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  activityDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/activities/delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα διαγραφής.','danger'); return; }
     loadActivities(type); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα διαγραφής.','danger');
+  } finally {
+    activityDeletePending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

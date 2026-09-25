@@ -140,8 +140,8 @@ function loadUsers(page) {
         '<td class="text-center">' + (String(r.active) === '1' ? '☑' : '☐') + '</td>' +
         '<td class="text-center">' +
           '<a href="#" class="btn btn-sm btn-primary" onclick="openUserModal(' + r.id + ')">✏️ Επεξεργασία</a> ' +
-          '<a href="#" class="btn btn-sm ' + (String(r.active) === '1' ? 'btn-danger' : 'btn-accent') + '" onclick="toggleUserActive(' + r.id + ',' + (String(r.active) === '1' ? '0' : '1') + ')">' + (String(r.active) === '1' ? '⛔ Απενεργ.' : '✅ Ενεργοπ.') + '</a> ' +
-          '<a href="#" class="btn btn-sm btn-danger" onclick="deleteUser(' + r.id + ')">🗑️ Διαγραφή</a>' +
+          '<a href="#" class="btn btn-sm ' + (String(r.active) === '1' ? 'btn-danger' : 'btn-accent') + '" onclick="toggleUserActive(' + r.id + ',' + (String(r.active) === '1' ? '0' : '1') + ');return false;">' + (String(r.active) === '1' ? '⛔ Απενεργ.' : '✅ Ενεργοπ.') + '</a> ' +
+          '<a href="#" class="btn btn-sm btn-danger" onclick="deleteUser(' + r.id + ');return false;">🗑️ Διαγραφή</a>' +
         '</td>' +
       '</tr>';
     });
@@ -301,34 +301,56 @@ function saveUser() {
   });
 }
 
+var userActionPending = false;
 async function toggleUserActive(id, active) {
+  if (userActionPending) return;
   var txt = active === 1 ? 'Να ενεργοποιηθεί ο χρήστης;' : 'Να απενεργοποιηθεί ο χρήστης;';
-  if (!await appConfirm(txt, {
-    title: active === 1 ? 'Ενεργοποίηση χρήστη' : 'Απενεργοποίηση χρήστη',
-    confirmLabel: active === 1 ? 'Ενεργοποίηση' : 'Απενεργοποίηση'
-  })) return;
-
-  apiPost('/api/users/set-active', {id:id, active: active ? '1' : ''}, function(err, resp) {
-    if (err || (resp && resp.error)) {
+  var data = {id:id, active: active ? '1' : ''};
+  userActionPending = true;
+  try {
+    if (!await appConfirm(txt, {
+      title: active === 1 ? 'Ενεργοποίηση χρήστη' : 'Απενεργοποίηση χρήστη',
+      confirmLabel: active === 1 ? 'Ενεργοποίηση' : 'Απενεργοποίηση',
+      danger: false
+    })) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/users/set-active', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
+    if (err || !resp || resp.error) {
       showToast((resp && resp.error) ? resp.error : 'Σφάλμα ενημέρωσης.', 'danger');
       return;
     }
     loadUsers(usersCurrentPage);
     showToast('Η κατάσταση ενημερώθηκε.', 'success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα ενημέρωσης.', 'danger');
+  } finally {
+    userActionPending = false;
+  }
 }
 
 async function deleteUser(id) {
-  if (!await confirmDelete('Θέλετε σίγουρα να διαγράψετε αυτόν τον χρήστη;')) return;
-
-  apiPost('/api/users/delete', {id:id, _token:CSRF_TOKEN}, function(err, resp) {
-    if (err || (resp && resp.error)) {
+  if (userActionPending) return;
+  var data = {id:id, _token:CSRF_TOKEN};
+  userActionPending = true;
+  try {
+    if (!await confirmDelete('Θέλετε σίγουρα να διαγράψετε αυτόν τον χρήστη;')) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/users/delete', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
+    if (err || !resp || resp.error) {
       showToast((resp && resp.error) ? resp.error : 'Σφάλμα διαγραφής.', 'danger');
       return;
     }
     loadUsers(usersCurrentPage);
     showToast('Ο χρήστης διαγράφηκε.', 'success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα διαγραφής.', 'danger');
+  } finally {
+    userActionPending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str == null ? '' : String(str))); return d.innerHTML; }

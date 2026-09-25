@@ -80,7 +80,7 @@ function loadGroups(page) {
         '<td class="text-center">' + (r.is_current == 1 ? '☑' : '☐') + '</td>' +
         '<td class="text-center">' +
           '<a href="#" class="btn btn-sm btn-primary" onclick="openGroupModal('+r.id+')">✏️ Επεξεργασία</a> ' +
-          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteGroup('+r.id+')">🗑️ Διαγραφή</a>' +
+          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteGroup('+r.id+');return false;">🗑️ Διαγραφή</a>' +
         '</td>' +
       '</tr>';
     });
@@ -135,12 +135,23 @@ function saveGroup() {
   });
 }
 
+var groupDeletePending = false;
 async function deleteGroup(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/groups/delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα διαγραφής.','danger'); return; }
+  if (groupDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  groupDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/groups/delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα διαγραφής.','danger'); return; }
     loadGroups(groupCurrentPage); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα διαγραφής.','danger');
+  } finally {
+    groupDeletePending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

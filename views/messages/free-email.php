@@ -54,7 +54,9 @@ function toggleGroup(radio) {
   document.getElementById('group-select-row').style.display = radio.value === 'all' ? 'none' : '';
 }
 
+var freeEmailPending = false;
 async function sendFreeEmail() {
+  if (freeEmailPending) return;
   var form    = document.getElementById('free-email-form');
   var subject = document.getElementById('fe-subject').value.trim();
   var body    = document.getElementById('fe-body').value.trim();
@@ -65,11 +67,6 @@ async function sendFreeEmail() {
   if (!body)    { showToast('Συμπληρώστε το κείμενο.','warning'); return; }
   if (target !== 'all' && !groupId) { showToast('Επιλέξτε τμήμα.','warning'); return; }
 
-  if (!await appConfirm('Αποστολή email σε ' + (target === 'all' ? 'ΟΛΟΥΣ τους γονείς' : 'το επιλεγμένο τμήμα') + ';', {
-    title: 'Αποστολή ελεύθερου email',
-    confirmLabel: 'Αποστολή'
-  })) return;
-
   var data = {
     _token:  CSRF_TOKEN,
     subject: subject,
@@ -78,9 +75,22 @@ async function sendFreeEmail() {
   };
   if (target === 'all') data.send_all = '1';
 
-  apiPost('/api/messages/send-free-email', data, function(err, resp) {
+  // Keep the approved draft intact until sending finishes; restore prior states on every exit.
+  var controls = Array.from(form.elements).map(function(el) { return {el:el, disabled:el.disabled}; });
+  freeEmailPending = true;
+  controls.forEach(function(control) { control.el.disabled = true; });
+  try {
+    if (!await appConfirm('Αποστολή email σε ' + (target === 'all' ? 'ΟΛΟΥΣ τους γονείς' : 'το επιλεγμένο τμήμα') + ';', {
+      title: target === 'all' ? 'Αποστολή email σε όλους τους γονείς' : 'Αποστολή email σε τμήμα',
+      confirmLabel: 'Αποστολή Email',
+      danger: false
+    })) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/messages/send-free-email', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
     var errEl = document.getElementById('free-email-error');
-    if (err || resp.error) {
+    if (err || !resp || resp.error) {
       errEl.textContent = (resp&&resp.error)||'Σφάλμα αποστολής.';
       errEl.classList.remove('hidden'); return;
     }
@@ -94,6 +104,11 @@ async function sendFreeEmail() {
     showToast(msg,'success');
     form.reset();
     document.getElementById('group-select-row').style.display = '';
-  });
+  } catch (error) {
+    showToast('Σφάλμα αποστολής.','danger');
+  } finally {
+    freeEmailPending = false;
+    controls.forEach(function(control) { control.el.disabled = control.disabled; });
+  }
 }
 </script>

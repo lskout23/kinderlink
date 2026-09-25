@@ -147,22 +147,37 @@ function openThread(threadId) {
 }
 
 // ── Delete message ──────────────────────────────────────────────────
+var inboxDeletePending = false;
 async function deleteMessage(msgId) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/inbox/delete-message', {msg_id: msgId}, function(err, resp) {
-    if (err || resp.error) { showToast(resp.error || 'Σφάλμα.', 'danger'); return; }
+  if (inboxDeletePending) return;
+  var threadId = currentThreadId;
+  var data = {msg_id: msgId};
+  inboxDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/inbox/delete-message', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
+    if (err || !resp || resp.error) { showToast((resp && resp.error) || 'Σφάλμα.', 'danger'); return; }
     if (resp.thread_deleted) {
       // Whole thread was deleted (no messages left)
-      document.getElementById('conversation-box').style.display   = 'none';
-      document.getElementById('conversation-empty').style.display = 'block';
-      currentThreadId = null;
+      if (currentThreadId === threadId) {
+        document.getElementById('conversation-box').style.display   = 'none';
+        document.getElementById('conversation-empty').style.display = 'block';
+        currentThreadId = null;
+      }
       showToast('Η συνομιλία διαγράφηκε.', 'success');
     } else {
-      openThread(currentThreadId);
+      if (currentThreadId === threadId) openThread(threadId);
       showToast('Το μήνυμα διαγράφηκε.', 'success');
     }
     loadThreadList();
-  });
+  } catch (error) {
+    showToast('Σφάλμα.', 'danger');
+  } finally {
+    inboxDeletePending = false;
+  }
 }
 
 // ── Reply ────────────────────────────────────────────────────────────

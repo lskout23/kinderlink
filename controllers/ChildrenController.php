@@ -128,46 +128,46 @@ class ChildrenController extends Controller {
         Auth::requireRole('admin');
         $this->verifyCsrf();
 
-        $action = trim((string)($_POST['action'] ?? ''));
-        $idsRaw = $_POST['ids'] ?? [];
-        $ids = [];
-
-        if (is_array($idsRaw)) {
-            foreach ($idsRaw as $id) {
-                $id = (int)$id;
-                if ($id > 0) {
-                    $ids[$id] = $id;
-                }
-            }
-        }
-        $ids = array_values($ids);
-
-        if (empty($ids)) {
-            $this->json(['error' => 'Δεν επιλέχθηκαν παιδιά.'], 422);
+        $action = $_POST['action'] ?? null;
+        if (!is_string($action) || !in_array($action, ['delete', 'activate', 'deactivate', 'clone'], true)) {
+            $this->json(['error' => 'Μη έγκυρη ενέργεια.'], 422);
             return;
         }
 
+        $idsRaw = $_POST['ids'] ?? null;
+        if (!is_array($idsRaw) || !array_is_list($idsRaw) || count($idsRaw) < 1 || count($idsRaw) > 100) {
+            $this->json(['error' => 'Επιλέξτε από 1 έως 100 έγκυρα ID παιδιών.'], 422);
+            return;
+        }
+        $ids = [];
+        foreach ($idsRaw as $id) {
+            if ((!is_int($id) && !is_string($id))
+                || !preg_match('/^[1-9][0-9]*$/D', (string)$id)
+                || filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+                $this->json(['error' => 'Μη έγκυρο ID παιδιού.'], 422);
+                return;
+            }
+            $ids[(int)$id] = (int)$id;
+        }
+        $ids = array_values($ids);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $cloneTransaction = false;
+
         try {
             if ($action === 'delete') {
-                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                // Keep existing database FK behavior; do not purge photo files.
                 $stmt = $this->db->prepare('DELETE FROM children WHERE id IN (' . $placeholders . ')');
                 $stmt->execute($ids);
-                $this->json(['success' => true, 'affected' => $stmt->rowCount()]);
-                return;
-            }
-
-            if ($action === 'activate' || $action === 'deactivate') {
+                $affected = $stmt->rowCount();
+            } elseif ($action === 'activate' || $action === 'deactivate') {
                 $active = $action === 'activate' ? 1 : 0;
-                $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                $params = array_merge([$active], $ids);
                 $stmt = $this->db->prepare('UPDATE children SET active = ? WHERE id IN (' . $placeholders . ')');
-                $stmt->execute($params);
-                $this->json(['success' => true, 'affected' => $stmt->rowCount()]);
-                return;
-            }
-
-            if ($action === 'clone') {
-                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $stmt->execute(array_merge([$active], $ids));
+                $affected = $stmt->rowCount();
+            } else {
+                // InnoDB: commit all copies together, or roll back every copy.
+                $this->db->beginTransaction();
+                $cloneTransaction = true;
                 $stmt = $this->db->prepare(
                     'SELECT first_name, last_name, dob, mother_mobile, father_mobile,
                             email1, email2, send_email1, send_email2, active, parent_user_id
@@ -182,7 +182,7 @@ class ChildrenController extends Controller {
                      VALUES (?,?,?,?,?,?,?,?,?,?,?)'
                 );
 
-                $created = 0;
+                $affected = 0;
                 foreach ($rows as $row) {
                     $insert->execute([
                         $row['first_name'],
@@ -197,17 +197,25 @@ class ChildrenController extends Controller {
                         $row['active'],
                         $row['parent_user_id'] !== '' ? $row['parent_user_id'] : null,
                     ]);
-                    $created++;
+                    $affected++;
                 }
-
-                $this->json(['success' => true, 'affected' => $created]);
-                return;
+                $this->db->commit();
+                $cloneTransaction = false;
             }
-
-            $this->json(['error' => 'Μη έγκυρη ενέργεια.'], 422);
         } catch (Throwable $e) {
-            $this->json(['error' => 'Αποτυχία μαζικής ενέργειας: ' . $e->getMessage()], 500);
+            if ($cloneTransaction) {
+                try {
+                    if ($this->db->inTransaction()) $this->db->rollBack();
+                } catch (Throwable $rollbackError) {
+                    error_log('Children bulk clone rollback failed.');
+                }
+            }
+            // Never expose SQL, child data, connection details or exception text.
+            error_log('Children bulk action failed.');
+            $this->json(['error' => 'Αποτυχία μαζικής ενέργειας.'], 500);
+            return;
         }
+        $this->json(['success' => true, 'affected' => $affected]);
     }
 
     /** API: delete a child */

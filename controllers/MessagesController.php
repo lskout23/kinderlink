@@ -239,22 +239,10 @@ class MessagesController extends Controller {
             return;
         }
 
-        $base = $this->photoStorageDir();
-        $stmt = $this->db->query('SELECT stored_name FROM message_photos');
+        $stmt = $this->db->query('SELECT id, stored_name FROM message_photos');
         $rows = $stmt ? $stmt->fetchAll() : [];
-
-        $deleted = 0;
-        foreach ($rows as $row) {
-            $path = $base . DIRECTORY_SEPARATOR . $row['stored_name'];
-            if (is_file($path)) {
-                @unlink($path);
-                $deleted++;
-            }
-        }
-
-        $this->db->exec('DELETE FROM message_photos');
-
-        $this->json(['success' => true, 'deleted_files' => $deleted, 'deleted_records' => count($rows)]);
+        $result = $this->purgePhotoRows($rows);
+        $this->respondPhotoPurge($result);
     }
 
     public function apiEmailPreview(): void {
@@ -635,19 +623,10 @@ class MessagesController extends Controller {
             }
 
             if (!empty($dupRows) && $forceOverwrite) {
-                $base = $this->photoStorageDir();
-                $ids = [];
-                foreach ($dupRows as $d) {
-                    $ids[] = (int)$d['id'];
-                    $path = $base . DIRECTORY_SEPARATOR . (string)$d['stored_name'];
-                    if (is_file($path)) {
-                        @unlink($path);
-                    }
-                }
-                if (!empty($ids)) {
-                    $idPlaceholders = implode(',', array_fill(0, count($ids), '?'));
-                    $delStmt = $this->db->prepare('DELETE FROM message_photos WHERE id IN (' . $idPlaceholders . ')');
-                    $delStmt->execute($ids);
+                $result = $this->purgePhotoRows($dupRows);
+                if ($result['failed'] > 0) {
+                    $this->respondPhotoPurge($result, true);
+                    return;
                 }
             }
         }
@@ -947,19 +926,10 @@ class MessagesController extends Controller {
             }
 
             if (!empty($dupRows) && $forceOverwrite) {
-                $base = $this->photoStorageDir();
-                $ids = [];
-                foreach ($dupRows as $d) {
-                    $ids[] = (int)$d['id'];
-                    $path = $base . DIRECTORY_SEPARATOR . (string)$d['stored_name'];
-                    if (is_file($path)) {
-                        @unlink($path);
-                    }
-                }
-                if (!empty($ids)) {
-                    $idPlaceholders = implode(',', array_fill(0, count($ids), '?'));
-                    $delStmt = $this->db->prepare('DELETE FROM message_photos WHERE id IN (' . $idPlaceholders . ')');
-                    $delStmt->execute($ids);
+                $result = $this->purgePhotoRows($dupRows);
+                if ($result['failed'] > 0) {
+                    $this->respondPhotoPurge($result, true);
+                    return;
                 }
             }
         }
@@ -1203,13 +1173,8 @@ class MessagesController extends Controller {
             return;
         }
 
-        $path = $this->photoStorageDir() . DIRECTORY_SEPARATOR . $row['stored_name'];
-        if (is_file($path)) {
-            @unlink($path);
-        }
-
-        $this->db->prepare('DELETE FROM message_photos WHERE id = ?')->execute([$id]);
-        $this->json(['success' => true, 'purged' => 1]);
+        $result = $this->purgePhotoRows([$row]);
+        $this->respondPhotoPurge($result);
     }
 
     public function apiPhotosPurgeSelected(): void {
@@ -1243,21 +1208,8 @@ class MessagesController extends Controller {
             return;
         }
 
-        $base = $this->photoStorageDir();
-        $deleteIds = [];
-        foreach ($rows as $row) {
-            $deleteIds[] = (int)$row['id'];
-            $path = $base . DIRECTORY_SEPARATOR . $row['stored_name'];
-            if (is_file($path)) {
-                @unlink($path);
-            }
-        }
-
-        $delPlaceholders = implode(',', array_fill(0, count($deleteIds), '?'));
-        $del = $this->db->prepare('DELETE FROM message_photos WHERE id IN (' . $delPlaceholders . ')');
-        $del->execute($deleteIds);
-
-        $this->json(['success' => true, 'purged' => count($deleteIds)]);
+        $result = $this->purgePhotoRows($rows);
+        $this->respondPhotoPurge($result);
     }
 
     public function apiPhotosPurgeDay(): void {
@@ -1305,21 +1257,8 @@ class MessagesController extends Controller {
             return;
         }
 
-        $base = $this->photoStorageDir();
-        $ids = [];
-        foreach ($rows as $row) {
-            $ids[] = (int)$row['id'];
-            $path = $base . DIRECTORY_SEPARATOR . $row['stored_name'];
-            if (is_file($path)) {
-                @unlink($path);
-            }
-        }
-
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $del = $this->db->prepare('DELETE FROM message_photos WHERE id IN (' . $placeholders . ')');
-        $del->execute($ids);
-
-        $this->json(['success' => true, 'purged' => count($ids)]);
+        $result = $this->purgePhotoRows($rows);
+        $this->respondPhotoPurge($result);
     }
 
     public function photo(): void {
@@ -1814,6 +1753,96 @@ class MessagesController extends Controller {
         return (($dosDate & 0xFFFF) << 16) | ($dosTime & 0xFFFF);
     }
 
+    /**
+     * Delete only a regular file in photo storage. Return true when unlinked,
+     * false when confirmed absent, null on failure/uncertain accessibility.
+     * file_exists()/is_file() alone cannot distinguish absence from denied access.
+     */
+    private function removeStoredPhotoFile(string $base, string $name): ?bool {
+        if ($name === '' || $name === '.' || $name === '..'
+            || strpbrk($name, "/\\\0:") !== false) {
+            return null;
+        }
+
+        $path = $base . DIRECTORY_SEPARATOR . $name;
+        clearstatcache(true, $path);
+        $stat = @lstat($path);
+        if ($stat !== false) {
+            // Never follow symlinks or attempt deletion of directories/special files.
+            if (($stat['mode'] & 0170000) !== 0100000) {
+                return null;
+            }
+            if (@unlink($path)) {
+                return true;
+            }
+        }
+
+        // Also handles another request removing the file between stat and unlink.
+        // If the directory cannot be listed, retain the DB row for a later retry.
+        clearstatcache(true, $path);
+        $entries = @scandir($base);
+        return is_array($entries) && !in_array($name, $entries, true) ? false : null;
+    }
+
+    /** Only remove metadata after its file is deleted or verifiably absent. */
+    private function purgePhotoRows(array $rows): array {
+        $result = ['purged' => 0, 'deleted_records' => 0, 'deleted_files' => 0, 'failed' => 0];
+        if (empty($rows)) {
+            return $result;
+        }
+        $base = $this->photoStorageDir();
+        try {
+            $delete = $this->db->prepare('DELETE FROM message_photos WHERE id = ? AND stored_name = ?');
+        } catch (Throwable $e) {
+            $delete = false;
+            error_log('[photo-purge] Metadata statement failed; no files deleted.');
+        }
+        if ($delete === false) {
+            $result['failed'] = count($rows);
+            return $result;
+        }
+        foreach ($rows as $row) {
+            $state = $this->removeStoredPhotoFile($base, (string)$row['stored_name']);
+            if ($state === null) {
+                $result['failed']++;
+                continue;
+            }
+            if ($state === true) {
+                $result['deleted_files']++;
+            }
+            try {
+                if (!$delete->execute([(int)$row['id'], (string)$row['stored_name']])) {
+                    $result['failed']++;
+                    continue;
+                }
+                $result['purged'] += $delete->rowCount();
+            } catch (Throwable $e) {
+                // No filenames, tokens, SQL or personal data in responses/logs.
+                // A remaining row whose file is now absent is safe to retry.
+                $result['failed']++;
+                error_log('[photo-purge] Metadata deletion failed; retry required.');
+            }
+        }
+        $result['deleted_records'] = $result['purged'];
+        return $result;
+    }
+
+    private function respondPhotoPurge(array $result, bool $overwrite = false): void {
+        $result['success'] = $result['failed'] === 0;
+        if (!$result['success']) {
+            $result['error_code'] = 'PHOTO_DELETE_FAILED';
+            // Existing UI displays error verbatim, including partial-result counts.
+            $result['error'] = ($overwrite
+                ? 'Η αντικατάσταση σταμάτησε πριν αποθηκευτούν νέες φωτογραφίες. '
+                : '')
+                . 'Ολοκληρώθηκε η διαγραφή ' . $result['purged'] . ' φωτογραφιών. '
+                . 'Δεν ολοκληρώθηκε για ' . $result['failed'] . '. '
+                . 'Οι αντίστοιχες εγγραφές διατηρήθηκαν για επανάληψη. '
+                . 'Δοκιμάστε ξανά ή επικοινωνήστε με τον διαχειριστή.';
+        }
+        $this->json($result, $result['success'] ? 200 : 500);
+    }
+
     private function photoStorageDir(): string {
         $dir = ROOT . '/storage/message_photos';
         if (!is_dir($dir)) {
@@ -2040,19 +2069,10 @@ class MessagesController extends Controller {
             return;
         }
 
-        $base = $this->photoStorageDir();
-        foreach ($rows as $row) {
-            $path = $base . DIRECTORY_SEPARATOR . $row['stored_name'];
-            if (is_file($path)) {
-                @unlink($path);
-            }
+        $result = $this->purgePhotoRows($rows);
+        if ($result['failed'] > 0) {
+            error_log('[photo-cleanup] Incomplete deletions: ' . $result['failed'] . '; records retained for retry.');
         }
-
-        $this->db->exec(
-            'DELETE FROM message_photos
-             WHERE created_at < DATE_SUB(NOW(), INTERVAL ' . $retentionDays . ' DAY)
-                OR (hidden_at IS NOT NULL AND hidden_at < DATE_SUB(NOW(), INTERVAL ' . $hiddenGraceDays . ' DAY))'
-        );
     }
 
     private function getPhotoRetentionDays(): int {

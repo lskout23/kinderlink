@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="<?= APP_URL ?>/public/icons/icon-192.png">
   <!-- /PWA -->
   <link rel="stylesheet" href="<?= APP_URL ?>/public/css/style.css?v=20260924-1">
-  <link rel="stylesheet" href="<?= APP_URL ?>/public/css/ui.css?v=20260922-4">
+  <link rel="stylesheet" href="<?= APP_URL ?>/public/css/ui.css?v=20260925-1">
   <link rel="stylesheet" href="<?= APP_URL ?>/public/css/ui-compact.css?v=20260922-3">
   <link rel="stylesheet" href="<?= APP_URL ?>/public/css/dashboard.css?v=20260923-2">
   <link rel="stylesheet" href="<?= APP_URL ?>/public/css/dialogs.css?v=20260922-1">

@@ -177,10 +177,10 @@ class InboxController extends Controller {
              JOIN `groups` g ON g.id = cg.group_id AND g.is_current = 1
              LEFT JOIN teacher_groups tg ON tg.group_id = g.id
              LEFT JOIN users u ON u.id = tg.user_id AND u.role = \'teacher\'
-             WHERE (c.parent_user_id = ? OR c.email1 = ? OR c.email2 = ?) AND c.active = 1
+                         WHERE c.parent_user_id = ? AND c.active = 1
              ORDER BY c.last_name, c.first_name, g.name'
         );
-        $stmt->execute([$user['id'], $user['email'], $user['email']]);
+        $stmt->execute([$user['id']]);
         $rows = $stmt->fetchAll();
 
         $this->json(['children' => $rows]);
@@ -209,6 +209,12 @@ class InboxController extends Controller {
         }
 
         $threadId = (int)$msg['thread_id'];
+
+        // Sending a message previously does not preserve access after unlinking.
+        if ($user['role'] === 'parent' && !$this->canAccessThread($threadId, $user)) {
+            $this->json(['error' => 'Δεν έχετε πρόσβαση σε αυτό το thread.'], 403);
+            return;
+        }
 
         // Delete the message
         $this->db->prepare('DELETE FROM parent_thread_messages WHERE id=?')->execute([$msgId]);
@@ -242,10 +248,10 @@ class InboxController extends Controller {
              FROM parent_threads t
              JOIN children c ON c.id = t.child_id
              JOIN `groups`  g ON g.id = t.group_id
-             WHERE t.parent_user_id = ?
+                         WHERE t.parent_user_id = ? AND c.parent_user_id = ? AND c.active = 1
              ORDER BY t.updated_at DESC'
         );
-        $stmt->execute([$parentId, $parentId]);
+        $stmt->execute([$parentId, $parentId, $parentId]);
         return $stmt->fetchAll();
     }
 
@@ -293,8 +299,13 @@ class InboxController extends Controller {
         if ($user['role'] === 'admin') return true;
 
         if ($user['role'] === 'parent') {
-            $stmt = $this->db->prepare('SELECT id FROM parent_threads WHERE id=? AND parent_user_id=?');
-            $stmt->execute([$threadId, $user['id']]);
+            // Historical thread ownership cannot override the child's current link.
+            $stmt = $this->db->prepare(
+                'SELECT t.id FROM parent_threads t
+                 JOIN children c ON c.id = t.child_id
+                 WHERE t.id = ? AND t.parent_user_id = ? AND c.parent_user_id = ? AND c.active = 1'
+            );
+            $stmt->execute([$threadId, $user['id'], $user['id']]);
             return (bool)$stmt->fetch();
         }
 
@@ -309,11 +320,10 @@ class InboxController extends Controller {
     }
 
     private function parentOwnsChild(int $parentId, int $childId): bool {
-        $user = Auth::user();
         $stmt = $this->db->prepare(
-            'SELECT id FROM children WHERE id=? AND (parent_user_id=? OR email1=? OR email2=?) AND active=1'
+            'SELECT id FROM children WHERE id=? AND parent_user_id=? AND active=1'
         );
-        $stmt->execute([$childId, $parentId, $user['email'], $user['email']]);
+        $stmt->execute([$childId, $parentId]);
         return (bool)$stmt->fetch();
     }
 
@@ -338,9 +348,11 @@ class InboxController extends Controller {
                 $stmt = $this->db->prepare(
                     'SELECT COUNT(*) FROM parent_thread_messages m
                      JOIN parent_threads t ON t.id = m.thread_id
-                     WHERE t.parent_user_id=? AND m.sender_id<>? AND m.read_at IS NULL'
+                     JOIN children c ON c.id = t.child_id
+                     WHERE t.parent_user_id=? AND c.parent_user_id=? AND c.active=1
+                       AND m.sender_id<>? AND m.read_at IS NULL'
                 );
-                $stmt->execute([$user['id'], $user['id']]);
+                $stmt->execute([$user['id'], $user['id'], $user['id']]);
             } elseif ($user['role'] === 'teacher') {
                 $stmt = $this->db->prepare(
                     'SELECT COUNT(*) FROM parent_thread_messages m
@@ -395,12 +407,14 @@ class InboxController extends Controller {
     }
 
     private function notifyParent(int $threadId, string $teacherName, string $body): void {
+        // Staff may reply to historical threads, but former parents must not be notified.
         $stmt = $this->db->prepare(
             'SELECT u.email, u.name, c.first_name, c.last_name
              FROM parent_threads t
              JOIN users u    ON u.id = t.parent_user_id
              JOIN children c ON c.id = t.child_id
-             WHERE t.id = ?'
+             WHERE t.id = ? AND c.parent_user_id = t.parent_user_id AND c.active = 1
+               AND u.active = 1 AND u.role = \'parent\''
         );
         $stmt->execute([$threadId]);
         $row = $stmt->fetch();

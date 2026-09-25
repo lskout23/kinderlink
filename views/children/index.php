@@ -31,7 +31,7 @@ $parentOptions = array_map(function ($p) {
           <col class="child-date-col">
           <col class="child-phone-col"><col class="child-phone-col">
           <col><col><col>
-          <col class="child-flag-col"><col class="child-flag-col"><col class="child-flag-col">
+          <col class="child-email-flag-col"><col class="child-email-flag-col"><col class="child-flag-col">
           <col class="child-actions-col">
         </colgroup>
         <thead>
@@ -45,8 +45,8 @@ $parentOptions = array_map(function ($p) {
             <th>email 1</th>
             <th>email 2</th>
             <th>Parent User</th>
-            <th>Αποστολή E1</th>
-            <th>Αποστολή E2</th>
+            <th class="child-email-heading" scope="col">Αποστολή<br>E1</th>
+            <th class="child-email-heading" scope="col">Αποστολή<br>E2</th>
             <th>Ενεργό</th>
             <th class="child-actions-heading" scope="col">Ενέργειες</th>
           </tr>
@@ -236,7 +236,9 @@ function toggleAllChildren(checked) {
   updateSelectedChildrenUI();
 }
 
+var childrenActionPending = false;
 async function bulkChildrenAction(action) {
+  if (childrenActionPending) return;
   var ids = getSelectedChildIds();
   if (!ids.length) {
     showToast('Επιλέξτε πρώτα παιδιά.','warning');
@@ -262,13 +264,18 @@ async function bulkChildrenAction(action) {
     deactivate: 'Απενεργοποίηση',
     delete: 'Οριστική διαγραφή'
   };
-  if (!await appConfirm(labels[action] || 'Να εκτελεστεί η ενέργεια;', {
-    title: titles[action] || 'Μαζική ενέργεια παιδιών',
-    confirmLabel: confirmLabels[action] || 'Εκτέλεση',
-    danger: action === 'delete'
-  })) return;
-
-  apiPost('/api/children/bulk-action', {action: action, ids: ids}, function(err, resp) {
+  var data = {action: action, ids: ids};
+  childrenActionPending = true;
+  try {
+    if (!await appConfirm(labels[action] || 'Να εκτελεστεί η ενέργεια;', {
+      title: titles[action] || 'Μαζική ενέργεια παιδιών',
+      confirmLabel: confirmLabels[action] || 'Εκτέλεση',
+      danger: action === 'delete'
+    })) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/children/bulk-action', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
     if (err || !resp || resp.error) {
       showToast(resp && resp.error ? resp.error : 'Αποτυχία μαζικής ενέργειας.','danger');
       return;
@@ -282,7 +289,11 @@ async function bulkChildrenAction(action) {
     };
     showToast((actionText[action] || 'Ολοκληρώθηκε η ενέργεια για ') + (resp.affected || 0) + ' παιδιά.','success');
     loadChildren(childCurrentPage);
-  });
+  } catch (error) {
+    showToast('Αποτυχία μαζικής ενέργειας.','danger');
+  } finally {
+    childrenActionPending = false;
+  }
 }
 
 function childPage(dir) {
@@ -368,12 +379,22 @@ function saveChild() {
 }
 
 async function deleteChild(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/children/delete', {id: id, _token: CSRF_TOKEN}, function(err, resp) {
-    if (err || resp.error) { showToast('Σφάλμα διαγραφής.', 'danger'); return; }
+  if (childrenActionPending) return;
+  var data = {id: id, _token: CSRF_TOKEN};
+  childrenActionPending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/children/delete', data, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα διαγραφής.', 'danger'); return; }
     loadChildren(childCurrentPage);
     showToast('Διαγράφηκε.', 'success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα διαγραφής.', 'danger');
+  } finally {
+    childrenActionPending = false;
+  }
 }
 
 function toggleParentWarning() {

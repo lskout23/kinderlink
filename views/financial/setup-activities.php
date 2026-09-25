@@ -56,7 +56,7 @@ function loadFa() {
         '<td>' + esc(r.name) + '</td>' +
         '<td class="text-center">' +
           '<a href="#" class="btn btn-sm btn-primary" onclick="openFaModal('+r.id+')">✏️</a> ' +
-          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteFa('+r.id+')">🗑️</a>' +
+          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteFa('+r.id+');return false;">🗑️</a>' +
         '</td></tr>';
     });
     if (!faData.length) tbody = '<tr><td colspan="2" class="text-center text-muted">Δεν υπάρχουν εγγραφές.</td></tr>';
@@ -92,12 +92,23 @@ function saveFa() {
   });
 }
 
+var financialActivityDeletePending = false;
 async function deleteFa(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/financial/activities/delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα.','danger'); return; }
+  if (financialActivityDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  financialActivityDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/financial/activities/delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα.','danger'); return; }
     loadFa(); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα.','danger');
+  } finally {
+    financialActivityDeletePending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

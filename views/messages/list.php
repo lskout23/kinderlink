@@ -107,12 +107,23 @@ function searchMessages() {
   });
 }
 
+var messageDeletePending = false;
 async function deleteMsg(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/messages/delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα.','danger'); return; }
+  if (messageDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  messageDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/messages/delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα.','danger'); return; }
     searchMessages(); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα.','danger');
+  } finally {
+    messageDeletePending = false;
+  }
 }
 
 function toggleSelectAll(checkbox) {
@@ -130,17 +141,31 @@ function updateBulkDeleteBtn() {
 }
 
 async function deleteBulkMessages() {
+  if (messageDeletePending) return;
   var checked = document.querySelectorAll('.msg-select-item:checked');
   if (checked.length === 0) { showToast('Δεν έχουν επιλεγεί μηνύματα.','warning'); return; }
-  if (!await confirmDelete('Είστε σίγουρος ότι θέλετε να διαγράψετε ' + checked.length + ' μηνύματα;')) return;
-  
   var ids = Array.from(checked).map(cb => cb.value).join(',');
-  apiPost('/api/messages/deleteBulk', {ids:ids,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα.','danger'); return; }
+  var data = {ids:ids,_token:CSRF_TOKEN};
+  var btn = document.getElementById('bulk-delete-btn');
+  var wasDisabled = btn.disabled;
+  messageDeletePending = true;
+  btn.disabled = true;
+  try {
+    if (!await confirmDelete('Είστε σίγουρος ότι θέλετε να διαγράψετε ' + checked.length + ' μηνύματα;')) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/messages/deleteBulk', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    var resp = result.resp;
+    if (result.err || !resp || resp.error) { showToast('Σφάλμα.','danger'); return; }
     document.getElementById('msg-select-all').checked = false;
     searchMessages();
     showToast('Διαγράφηκαν ' + resp.deleted + ' μηνύματα.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα.','danger');
+  } finally {
+    messageDeletePending = false;
+    btn.disabled = wasDisabled;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

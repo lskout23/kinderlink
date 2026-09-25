@@ -6,23 +6,12 @@ class ParentController extends Controller {
 
         $user = Auth::user();
 
-        // Find children linked to this parent account
+        // Only explicit links grant access; contact emails are not authorization.
         $stmt = $this->db->prepare(
             'SELECT id, first_name, last_name FROM children WHERE parent_user_id = ? AND active = 1 ORDER BY last_name, first_name'
         );
         $stmt->execute([$user['id']]);
         $children = $stmt->fetchAll();
-
-        // If no children linked, try matching by email
-        if (empty($children)) {
-            $stmtByEmail = $this->db->prepare(
-                'SELECT id, first_name, last_name FROM children
-                 WHERE (email1 = ? OR email2 = ?) AND active = 1
-                 ORDER BY last_name, first_name'
-            );
-            $stmtByEmail->execute([$user['email'], $user['email']]);
-            $children = $stmtByEmail->fetchAll();
-        }
 
         // Check if there are messages today for any linked child.
         $todayCount = 0;
@@ -62,15 +51,8 @@ class ParentController extends Controller {
         );
         $stmt->execute([$childId, $user['id']]);
         if (!$stmt->fetch()) {
-            // Try email fallback
-            $stmt2 = $this->db->prepare(
-                'SELECT id FROM children WHERE id = ? AND (email1 = ? OR email2 = ?) AND active = 1'
-            );
-            $stmt2->execute([$childId, $user['email'], $user['email']]);
-            if (!$stmt2->fetch()) {
-                $this->json(['error' => 'Δεν επιτρέπεται η πρόσβαση.'], 403);
-                return;
-            }
+            $this->json(['error' => 'Δεν επιτρέπεται η πρόσβαση.'], 403);
+            return;
         }
 
         $stmt = $this->db->prepare(

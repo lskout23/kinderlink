@@ -103,7 +103,7 @@ function loadExpenses() {
         '<td style="text-align:right;">' + parseFloat(r.amount).toFixed(2)+' €</td>' +
         '<td class="text-center">' +
           '<a href="#" class="btn btn-sm btn-primary" onclick="openExpModal('+r.id+')">✏️</a> ' +
-          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteExp('+r.id+')">🗑️</a>' +
+          '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteExp('+r.id+');return false;">🗑️</a>' +
         '</td></tr>';
     });
     if (!expData.length) tbody='<tr><td colspan="5" class="text-center text-muted">Δεν υπάρχουν εγγραφές.</td></tr>';
@@ -145,12 +145,23 @@ function saveExp() {
   });
 }
 
+var expenseDeletePending = false;
 async function deleteExp(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/financial/expenses-delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα.','danger'); return; }
+  if (expenseDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  expenseDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/financial/expenses-delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα.','danger'); return; }
     loadExpenses(); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα.','danger');
+  } finally {
+    expenseDeletePending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

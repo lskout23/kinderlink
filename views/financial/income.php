@@ -165,7 +165,7 @@ function renderIncomeTable(tbodyId, rows) {
       '<td style="text-align:right;'+balColor+'">' + balance + ' €</td>' +
       '<td class="text-center">' +
         '<a href="#" class="btn btn-sm btn-primary" onclick="openIncomeModal('+r.id+')">✏️</a> ' +
-        '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteIncome('+r.id+')">🗑️</a>' +
+        '<a href="#" class="btn btn-sm btn-danger"  onclick="deleteIncome('+r.id+');return false;">🗑️</a>' +
       '</td>' +
     '</tr>';
   });
@@ -214,12 +214,23 @@ function saveIncome() {
   });
 }
 
+var incomeDeletePending = false;
 async function deleteIncome(id) {
-  if (!await confirmDelete()) return;
-  apiPost('/api/financial/income-delete', {id:id,_token:CSRF_TOKEN}, function(err,resp) {
-    if (err||resp.error){ showToast('Σφάλμα διαγραφής.','danger'); return; }
+  if (incomeDeletePending) return;
+  var data = {id:id,_token:CSRF_TOKEN};
+  incomeDeletePending = true;
+  try {
+    if (!await confirmDelete()) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/financial/income-delete', data, function(err,resp) { resolve({err:err,resp:resp}); });
+    });
+    if (result.err || !result.resp || result.resp.error) { showToast('Σφάλμα διαγραφής.','danger'); return; }
     loadIncomeForChild(); showToast('Διαγράφηκε.','success');
-  });
+  } catch (error) {
+    showToast('Σφάλμα διαγραφής.','danger');
+  } finally {
+    incomeDeletePending = false;
+  }
 }
 
 function esc(str){ var d=document.createElement('div'); d.appendChild(document.createTextNode(str)); return d.innerHTML; }

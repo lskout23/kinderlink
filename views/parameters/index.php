@@ -111,22 +111,28 @@ async function migrateAttendance() {
   });
 }
 
+var purgePhotosBusy = false;
 async function confirmPurgePhotos() {
+  if (purgePhotosBusy) return;
+  purgePhotosBusy = true;
   var btn = document.querySelector('[onclick="confirmPurgePhotos()"]');
-  if (!await appConfirm('ΠΡΟΣΟΧΗ: Θα διαγραφούν ΟΛΕΣ οι φωτογραφίες από τη βάση και το αποθηκευτικό χώρο.\n\nΗ ενέργεια είναι μη αναστρέψιμη.\n\nΕίστε σίγουροι;', {
-    title: 'Διαγραφή όλων των φωτογραφιών',
-    confirmLabel: 'Συνέχεια στη διαγραφή',
-    danger: true
-  })) return;
-  if (!await appConfirm('Τελευταία επιβεβαίωση: Να διαγραφούν ΟΛΕΣ οι φωτογραφίες;', {
-    title: 'Τελική επιβεβαίωση διαγραφής φωτογραφιών',
-    confirmLabel: 'Οριστική διαγραφή όλων',
-    danger: true
-  })) return;
+  try {
+    if (!await appConfirm('ΠΡΟΣΟΧΗ: Θα διαγραφούν ΟΛΕΣ οι φωτογραφίες από τη βάση και το αποθηκευτικό χώρο.\n\nΗ ενέργεια είναι μη αναστρέψιμη.\n\nΕίστε σίγουροι;', {
+      title: 'Διαγραφή όλων των φωτογραφιών',
+      confirmLabel: 'Συνέχεια στη διαγραφή',
+      danger: true
+    })) { purgePhotosBusy = false; return; }
+    if (!await appConfirm('Τελευταία επιβεβαίωση: Να διαγραφούν ΟΛΕΣ οι φωτογραφίες; Τα links τους, ακόμη και σε ήδη σταλμένα email, θα σταματήσουν να λειτουργούν.', {
+      title: 'Τελική επιβεβαίωση διαγραφής φωτογραφιών',
+      confirmLabel: 'Οριστική διαγραφή όλων',
+      danger: true
+    })) { purgePhotosBusy = false; return; }
+  } catch (error) { purgePhotosBusy = false; return; }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Διαγραφή...'; }
 
   apiPost('/api/messages/photos/purge-all', {}, function(err, resp) {
+    purgePhotosBusy = false;
     if (btn) { btn.disabled = false; btn.textContent = '🗑️ Διαγραφή Όλων των Φωτογραφιών'; }
     var el = document.getElementById('purge-result');
     if (resp && resp.success) {
