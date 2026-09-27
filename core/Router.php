@@ -119,10 +119,12 @@ class Router {
         // Inbox (parent ↔ teacher private messages)
         $this->add('GET',  '/inbox',                               'InboxController',     'index');
         $this->add('POST', '/api/inbox/thread-list',               'InboxController',     'apiThreadList');
+        $this->add('POST', '/api/inbox/unread-count',              'InboxController',     'apiUnreadCount');
         $this->add('POST', '/api/inbox/thread-messages',           'InboxController',     'apiThreadMessages');
         $this->add('POST', '/api/inbox/send',                      'InboxController',     'apiSendMessage');
         $this->add('POST', '/api/inbox/reply',                     'InboxController',     'apiReply');
         $this->add('POST', '/api/inbox/delete-message',            'InboxController',     'apiDeleteMessage');
+        $this->add('POST', '/api/inbox/delete-thread',             'InboxController',     'apiDeleteThread');
         $this->add('POST', '/api/inbox/children',                  'InboxController',     'apiChildrenForInbox');
     }
 

@@ -81,6 +81,21 @@
     setTimeout(function() { el.remove(); }, 3000);
   }
 
+  // Το badge του μενού παράγεται server-side και θα έμενε παγωμένο μέχρι την
+  // επόμενη φόρτωση σελίδας. Καλείται όταν αλλάζει η κατάσταση ανάγνωσης.
+  function refreshInboxBadge() {
+    var nodes = document.querySelectorAll('[data-inbox-badge]');
+    if (!nodes.length) return;
+    apiPost('/api/inbox/unread-count', {}, function(err, resp) {
+      if (err || !resp || resp.error || typeof resp.unread === 'undefined') return;
+      var count = parseInt(resp.unread, 10) || 0;
+      for (var i = 0; i < nodes.length; i++) {
+        nodes[i].textContent = count;
+        nodes[i].style.display = count > 0 ? '' : 'none';
+      }
+    });
+  }
+
   function confirmDelete(msg) {
     return appConfirm(msg || 'Θέλετε σίγουρα να διαγράψετε αυτή την εγγραφή;', {
       title: 'Επιβεβαίωση διαγραφής', confirmLabel: 'Διαγραφή', danger: true
@@ -218,7 +233,7 @@
         ?>
         <li>
           <a href="<?= BASE_URL ?>/inbox">
-            Μηνύματα Γονέων<?= $inboxUnreadStaff > 0 ? ' <span style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;">' . $inboxUnreadStaff . '</span>' : '' ?>
+            Μηνύματα Γονέων <span data-inbox-badge style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;<?= $inboxUnreadStaff > 0 ? '' : 'display:none;' ?>"><?= (int)$inboxUnreadStaff ?></span>
           </a>
         </li>
       </ul>
@@ -244,7 +259,7 @@
     <li><a href="<?= BASE_URL ?>/parent/dashboard">Δραστηριότητες Παιδιού</a></li>
     <li>
       <a href="<?= BASE_URL ?>/inbox">
-        Εισερχόμενα<?= $inboxUnread > 0 ? ' <span style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;">' . $inboxUnread . '</span>' : '' ?>
+        Εισερχόμενα <span data-inbox-badge style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;<?= $inboxUnread > 0 ? '' : 'display:none;' ?>"><?= (int)$inboxUnread ?></span>
       </a>
     </li>
     <li><a href="<?= BASE_URL ?>/parent/personal-details">Προσωπικές Ρυθμίσεις</a></li>
@@ -256,7 +271,7 @@
 <nav class="mobile-tabs" aria-label="Γρήγορη πλοήγηση">
   <?php if ($user['role'] === 'parent'): ?>
   <a href="<?= BASE_URL ?>/parent/dashboard"><span data-icon="home" aria-hidden="true"></span><span>Δραστηριότητες</span></a>
-  <a href="<?= BASE_URL ?>/inbox"><span data-icon="mail" aria-hidden="true"></span><span>Εισερχόμενα<?php if ($inboxUnread > 0): ?> <span class="nav-badge"><?= (int)$inboxUnread ?></span><?php endif; ?></span></a>
+  <a href="<?= BASE_URL ?>/inbox"><span data-icon="mail" aria-hidden="true"></span><span>Εισερχόμενα <span class="nav-badge" data-inbox-badge<?= $inboxUnread > 0 ? '' : ' style="display:none;"' ?>><?= (int)$inboxUnread ?></span></span></a>
   <a href="<?= BASE_URL ?>/parent/personal-details"><span data-icon="user" aria-hidden="true"></span><span>Προφίλ</span></a>
   <?php else: ?>
   <a href="<?= BASE_URL ?>/dashboard"><span data-icon="home" aria-hidden="true"></span><span>Αρχική</span></a>

@@ -36,6 +36,14 @@ class InboxController extends Controller {
         $this->json(['threads' => $threads]);
     }
 
+    /** Current unread count, για ανανέωση του badge του μενού χωρίς reload σελίδας. */
+    public function apiUnreadCount(): void {
+        Auth::requireLogin();
+        $this->verifyCsrf();
+
+        $this->json(['unread' => $this->countUnread(Auth::user())]);
+    }
+
     /** Get all messages in a thread (and mark them as read) */
     public function apiThreadMessages(): void {
         Auth::requireLogin();
@@ -50,15 +58,23 @@ class InboxController extends Controller {
             return;
         }
 
-        // Mark unread messages (sent by the OTHER party) as read
+        // Το read_at δηλώνει "διαβάστηκε από την άλλη πλευρά". Ο γονέας του thread
+        // είναι το t.parent_user_id· οποιοσδήποτε άλλος αποστολέας είναι πλευρά σχολείου.
+        // Έτσι όταν ένας δάσκαλος ανοίγει τη συνομιλία δεν σημειώνει ως διαβασμένα
+        // τα μηνύματα που έστειλε ο διαχειριστής προς τον γονέα.
+        $sideCondition = $user['role'] === 'parent'
+            ? 'm.sender_id <> t.parent_user_id'   // γονέας διαβάζει τα μηνύματα του σχολείου
+            : 'm.sender_id = t.parent_user_id';   // σχολείο διαβάζει τα μηνύματα του γονέα
+
         $this->db->prepare(
-            'UPDATE parent_thread_messages
-             SET read_at = NOW()
-             WHERE thread_id = ? AND sender_id <> ? AND read_at IS NULL'
-        )->execute([$threadId, $user['id']]);
+            'UPDATE parent_thread_messages m
+             JOIN parent_threads t ON t.id = m.thread_id
+             SET m.read_at = NOW()
+             WHERE m.thread_id = ? AND m.read_at IS NULL AND ' . $sideCondition
+        )->execute([$threadId]);
 
         $stmt = $this->db->prepare(
-            'SELECT m.id, m.body, m.created_at, m.sender_id,
+            'SELECT m.id, m.body, m.created_at, m.sender_id, m.read_at,
                     u.name AS sender_name, u.role AS sender_role
              FROM parent_thread_messages m
              JOIN users u ON u.id = m.sender_id
@@ -99,6 +115,7 @@ class InboxController extends Controller {
         if ($childId <= 0 || $groupId <= 0) { $this->json(['error' => 'Μη έγκυρο παιδί/τμήμα.'], 422); return; }
         if ($body === '')    { $this->json(['error' => 'Το μήνυμα δεν μπορεί να είναι κενό.'],     422); return; }
         if (mb_strlen($body) > 2000) { $this->json(['error' => 'Το μήνυμα υπερβαίνει τους 2000 χαρακτήρες.'], 422); return; }
+        if (mb_strlen($subject) > 255) { $this->json(['error' => 'Το θέμα υπερβαίνει τους 255 χαρακτήρες.'], 422); return; }
         if ($subject === '') $subject = 'Ερώτηση γονέα';
 
         // Verify parent owns this child
@@ -234,7 +251,43 @@ class InboxController extends Controller {
         $this->json(['success' => true, 'thread_deleted' => $threadDeleted]);
     }
 
-    /** Delete an entire thread (admin only, or thread owner parent) */
+    /**
+     * Delete an entire thread (admin only).
+     * Parents keep per-message deletion via apiDeleteMessage: that removes only their own
+     * messages, and drops the thread only when nothing is left (e.g. they changed their mind
+     * before anyone replied). It can never hide the school's messages from an admin.
+     */
+    public function apiDeleteThread(): void {
+        Auth::requireLogin();
+        $this->verifyCsrf();
+
+        $user = Auth::user();
+        if ($user['role'] !== 'admin') {
+            $this->json(['error' => 'Δεν έχετε δικαίωμα διαγραφής ολόκληρης της συνομιλίας.'], 403);
+            return;
+        }
+
+        $threadId = (int)($_POST['thread_id'] ?? 0);
+        if ($threadId <= 0) { $this->json(['error' => 'Μη έγκυρη συνομιλία.'], 422); return; }
+
+        $stmt = $this->db->prepare('SELECT id FROM parent_threads WHERE id=?');
+        $stmt->execute([$threadId]);
+        if (!$stmt->fetch()) { $this->json(['error' => 'Η συνομιλία δεν βρέθηκε.'], 404); return; }
+
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare('DELETE FROM parent_thread_messages WHERE thread_id=?')->execute([$threadId]);
+            $this->db->prepare('DELETE FROM parent_threads WHERE id=?')->execute([$threadId]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $this->json(['error' => 'Η διαγραφή της συνομιλίας απέτυχε.'], 500);
+            return;
+        }
+
+        $this->json(['success' => true]);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────
 
     private function getThreadsForParent(int $parentId): array {
@@ -242,7 +295,7 @@ class InboxController extends Controller {
             'SELECT t.id, t.subject, t.updated_at,
                     c.first_name, c.last_name, g.name AS group_name,
                     (SELECT COUNT(*) FROM parent_thread_messages m
-                     WHERE m.thread_id = t.id AND m.sender_id <> ? AND m.read_at IS NULL) AS unread,
+                     WHERE m.thread_id = t.id AND m.sender_id <> t.parent_user_id AND m.read_at IS NULL) AS unread,
                     (SELECT body FROM parent_thread_messages m2
                      WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_body
              FROM parent_threads t
@@ -251,7 +304,7 @@ class InboxController extends Controller {
                          WHERE t.parent_user_id = ? AND c.parent_user_id = ? AND c.active = 1
              ORDER BY t.updated_at DESC'
         );
-        $stmt->execute([$parentId, $parentId, $parentId]);
+        $stmt->execute([$parentId, $parentId]);
         return $stmt->fetchAll();
     }
 
@@ -262,7 +315,7 @@ class InboxController extends Controller {
                     c.first_name, c.last_name, g.name AS group_name,
                     pu.name AS parent_name,
                     (SELECT COUNT(*) FROM parent_thread_messages m
-                     WHERE m.thread_id = t.id AND m.sender_id <> ? AND m.read_at IS NULL) AS unread,
+                     WHERE m.thread_id = t.id AND m.sender_id = t.parent_user_id AND m.read_at IS NULL) AS unread,
                     (SELECT body FROM parent_thread_messages m2
                      WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_body
              FROM parent_threads t
@@ -273,7 +326,7 @@ class InboxController extends Controller {
                 OR t.id IN (SELECT DISTINCT thread_id FROM parent_thread_messages WHERE sender_id = ?)
              ORDER BY t.updated_at DESC'
         );
-        $stmt->execute([$teacherId, $teacherId, $teacherId]);
+        $stmt->execute([$teacherId, $teacherId]);
         return $stmt->fetchAll();
     }
 
@@ -283,7 +336,7 @@ class InboxController extends Controller {
                     c.first_name, c.last_name, g.name AS group_name,
                     pu.name AS parent_name,
                     (SELECT COUNT(*) FROM parent_thread_messages m
-                     WHERE m.thread_id = t.id AND m.read_at IS NULL) AS unread,
+                     WHERE m.thread_id = t.id AND m.sender_id = t.parent_user_id AND m.read_at IS NULL) AS unread,
                     (SELECT body FROM parent_thread_messages m2
                      WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_body
              FROM parent_threads t
@@ -328,10 +381,14 @@ class InboxController extends Controller {
     }
 
     private function findOrCreateThread(int $childId, int $parentId, int $groupId, string $subject): int {
+        // Κλειδί συνομιλίας: παιδί + γονέας + τμήμα + θέμα. Νέο θέμα = νέα συνομιλία,
+        // ίδιο θέμα = συνέχεια της υπάρχουσας (η σύγκριση ακολουθεί το collation της στήλης).
         $stmt = $this->db->prepare(
-            'SELECT id FROM parent_threads WHERE child_id=? AND parent_user_id=? AND group_id=? LIMIT 1'
+            'SELECT id FROM parent_threads
+             WHERE child_id=? AND parent_user_id=? AND group_id=? AND subject=?
+             ORDER BY id DESC LIMIT 1'
         );
-        $stmt->execute([$childId, $parentId, $groupId]);
+        $stmt->execute([$childId, $parentId, $groupId, $subject]);
         $existing = $stmt->fetchColumn();
         if ($existing) return (int)$existing;
 
@@ -350,20 +407,22 @@ class InboxController extends Controller {
                      JOIN parent_threads t ON t.id = m.thread_id
                      JOIN children c ON c.id = t.child_id
                      WHERE t.parent_user_id=? AND c.parent_user_id=? AND c.active=1
-                       AND m.sender_id<>? AND m.read_at IS NULL'
+                       AND m.sender_id <> t.parent_user_id AND m.read_at IS NULL'
                 );
-                $stmt->execute([$user['id'], $user['id'], $user['id']]);
+                $stmt->execute([$user['id'], $user['id']]);
             } elseif ($user['role'] === 'teacher') {
                 $stmt = $this->db->prepare(
                     'SELECT COUNT(*) FROM parent_thread_messages m
                      JOIN parent_threads t ON t.id = m.thread_id
                      JOIN teacher_groups tg ON tg.group_id = t.group_id AND tg.user_id = ?
-                     WHERE m.sender_id <> ? AND m.read_at IS NULL'
+                     WHERE m.sender_id = t.parent_user_id AND m.read_at IS NULL'
                 );
-                $stmt->execute([$user['id'], $user['id']]);
+                $stmt->execute([$user['id']]);
             } else {
                 $stmt = $this->db->query(
-                    'SELECT COUNT(*) FROM parent_thread_messages WHERE read_at IS NULL'
+                    'SELECT COUNT(*) FROM parent_thread_messages m
+                     JOIN parent_threads t ON t.id = m.thread_id
+                     WHERE m.sender_id = t.parent_user_id AND m.read_at IS NULL'
                 );
             }
             return (int)$stmt->fetchColumn();

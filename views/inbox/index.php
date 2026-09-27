@@ -26,7 +26,12 @@ $isAdmin   = ($user['role'] === 'admin');
   <!-- ── Right panel: conversation ── -->
   <div class="inbox-conversation">
     <div class="section-box" id="conversation-box" style="display:none;">
-      <div class="section-title" id="conversation-title">Συνομιλία</div>
+      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <span id="conversation-title">Συνομιλία</span>
+        <?php if ($isAdmin): ?>
+        <button type="button" class="btn btn-sm" onclick="deleteThread()" title="Διαγραφή ολόκληρης της συνομιλίας" aria-label="Διαγραφή ολόκληρης της συνομιλίας" style="background:none;border:0;color:inherit;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;">🗑️</button>
+        <?php endif; ?>
+      </div>
       <div class="section-body">
         <div id="conversation-messages" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;padding-bottom:8px;"></div>
         <hr style="margin:12px 0;">
@@ -61,7 +66,8 @@ $isAdmin   = ($user['role'] === 'admin');
     </div>
     <div style="margin-bottom:10px;">
       <label style="font-size:12px;display:block;margin-bottom:4px;">Θέμα (προαιρετικό)</label>
-      <input type="text" id="nt-subject" placeholder="π.χ. Ερώτηση για σήμερα" style="width:100%;box-sizing:border-box;">
+      <input type="text" id="nt-subject" placeholder="π.χ. Ερώτηση για σήμερα" maxlength="255" style="width:100%;box-sizing:border-box;">
+      <div style="font-size:11px;color:#999;margin-top:4px;">Νέο θέμα ανοίγει ξεχωριστή συνομιλία. Για συνέχεια σε υπάρχουσα, γράψτε το ίδιο θέμα ή απαντήστε απευθείας σε αυτή.</div>
     </div>
     <div style="margin-bottom:14px;">
       <label style="font-size:12px;display:block;margin-bottom:4px;">Μήνυμα <span style="color:#e74c3c;">*</span></label>
@@ -91,6 +97,9 @@ function loadThreadList() {
     resp.threads.forEach(function(t) {
       var unread = parseInt(t.unread) > 0;
       var preview = (t.last_body || '').substring(0, 60) + ((t.last_body || '').length > 60 ? '…' : '');
+      // Προτιμάμε το θέμα της συνομιλίας· πέφτουμε στο τελευταίο μήνυμα μόνο αν δεν υπάρχει θέμα.
+      var subject = (t.subject || '').trim();
+      var snippet = subject !== '' ? subject.substring(0, 60) + (subject.length > 60 ? '…' : '') : preview;
       var who = isParent ? esc(t.group_name) : esc((t.parent_name || '') + ' – ' + t.first_name + ' ' + t.last_name);
       html += '<div class="thread-item' + (unread ? ' thread-unread' : '') + '" onclick="openThread(' + t.id + ')" '
             + 'style="padding:12px 14px;cursor:pointer;border-bottom:1px solid #eee;">'
@@ -99,10 +108,11 @@ function loadThreadList() {
             + (unread ? '<span style="background:#e74c3c;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;">' + t.unread + '</span>' : '')
             + '</div>'
             + '<div style="font-size:11px;color:#666;margin-top:2px;">' + who + '</div>'
-            + '<div style="font-size:11px;color:#999;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(preview) + '</div>'
+            + '<div style="font-size:11px;color:' + (subject !== '' ? '#555' : '#999') + ';font-weight:' + (subject !== '' && unread ? '600' : '400') + ';margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(snippet) + '</div>'
             + '</div>';
     });
     document.getElementById('thread-list').innerHTML = html || '<div class="text-muted" style="padding:16px;text-align:center;">Δεν υπάρχουν συνομιλίες ακόμα.</div>';
+    if (typeof refreshInboxBadge === 'function') refreshInboxBadge();
   });
 }
 
@@ -126,6 +136,19 @@ function openThread(threadId) {
     resp.messages.forEach(function(m) {
       var isMine = (String(m.sender_id) === String(myUserId));
       var canDel = isMine || isAdmin;
+      // Ένδειξη ανάγνωσης μόνο στα δικά μας μηνύματα. Το read_at γεμίζει μόνο
+      // όταν ανοίξει τη συνομιλία η ΑΛΛΗ πλευρά (γονέας ↔ σχολείο).
+      var receipt = '';
+      if (isMine) {
+        var isRead  = !!m.read_at;
+        var label   = isRead ? '✓✓ Διαβάστηκε' : '✓ Στάλθηκε';
+        var tooltip = isRead
+          ? 'Διαβάστηκε ' + m.read_at
+          : (isParent ? 'Δεν το έχει ανοίξει ακόμη το σχολείο' : 'Δεν το έχει ανοίξει ακόμη ο γονέας');
+        receipt = '<div style="text-align:right;font-size:10px;margin-top:4px;color:'
+                + (isRead ? '#0b7285' : '#94a3b8') + ';" title="'
+                + esc(tooltip).replace(/"/g, '&quot;') + '">' + label + '</div>';
+      }
       html += '<div style="align-self:' + (isMine ? 'flex-end' : 'flex-start') + ';max-width:80%;">' 
             + '<div style="background:' + (isMine ? '#d1fae5' : '#f3f4f6') + ';border-radius:10px;padding:10px 14px;font-size:13px;position:relative;">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:4px;">'
@@ -133,6 +156,7 @@ function openThread(threadId) {
             + (canDel ? '<button onclick="deleteMessage(' + m.id + ')" style="background:none;border:none;cursor:pointer;font-size:13px;color:#aaa;padding:0;line-height:1;" title="Διαγραφή μηνύματος">🗑️</button>' : '')
             + '</div>'
             + nl2br(esc(m.body))
+            + receipt
             + '</div></div>';
     });
     document.getElementById('conversation-messages').innerHTML = html;
@@ -177,6 +201,35 @@ async function deleteMessage(msgId) {
     showToast('Σφάλμα.', 'danger');
   } finally {
     inboxDeletePending = false;
+  }
+}
+
+// ── Delete whole thread ─────────────────────────────────────────
+var inboxThreadDeletePending = false;
+async function deleteThread() {
+  if (inboxThreadDeletePending) return;
+  var threadId = currentThreadId;
+  if (!threadId) return;
+  inboxThreadDeletePending = true;
+  try {
+    var confirmed = await confirmDelete('Θα διαγραφεί ΟΛΗ η συνομιλία μαζί με όλα τα μηνύματά της. Η ενέργεια δεν αναιρείται. Συνέχεια;');
+    if (!confirmed) return;
+    var result = await new Promise(function(resolve) {
+      apiPost('/api/inbox/delete-thread', {thread_id: threadId}, function(err, resp) { resolve({err:err,resp:resp}); });
+    });
+    var err = result.err, resp = result.resp;
+    if (err || !resp || resp.error) { showToast((resp && resp.error) || 'Σφάλμα.', 'danger'); return; }
+    if (currentThreadId === threadId) {
+      document.getElementById('conversation-box').style.display   = 'none';
+      document.getElementById('conversation-empty').style.display = 'block';
+      currentThreadId = null;
+    }
+    showToast('Η συνομιλία διαγράφηκε.', 'success');
+    loadThreadList();
+  } catch (error) {
+    showToast('Σφάλμα.', 'danger');
+  } finally {
+    inboxThreadDeletePending = false;
   }
 }
 

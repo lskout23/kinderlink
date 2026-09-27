@@ -1,6 +1,10 @@
 ﻿<?php
 class MessagesController extends Controller {
     private string $lastMailError = '';
+    /** @var resource|null Ανοιχτή SMTP συνεδρία, επαναχρησιμοποιείται για όλη την παρτίδα. */
+    private $smtpSocket = null;
+    /** Κωδικός της τελευταίας απάντησης SMTP (0 = δεν ήρθε απάντηση / έπεσε η σύνδεση). */
+    private int $smtpLastCode = 0;
     private const PHOTO_MAX_BYTES = 5242880; // 5 MB
     private const PHOTO_RETENTION_DAYS_DEFAULT = 180;
     private const PHOTO_RETENTION_DAYS_MIN = 1;
@@ -463,6 +467,8 @@ class MessagesController extends Controller {
             $this->db->prepare('UPDATE messages SET email_status=? WHERE id=?')
                      ->execute([$status, $msg['id']]);
         }
+
+        $this->smtpClose(true);
 
         $this->json([
             'success' => true,
@@ -2229,7 +2235,10 @@ class MessagesController extends Controller {
         return $this->sendViaSmtp($to, $subject, $body);
     }
 
-    private function sendViaSmtp(string $to, string $subject, string $body): bool {
+    /**
+     * Διαβάζει και επικυρώνει τις SMTP ρυθμίσεις. Επιστρέφει null σε σφάλμα.
+     */
+    private function smtpConfig(): ?array {
         $host   = trim((string)(defined('SMTP_HOST') ? SMTP_HOST : 'localhost'));
         $port   = defined('SMTP_PORT') ? (int)SMTP_PORT : 587;
         $user   = trim((string)(defined('SMTP_USER') ? SMTP_USER : ''));
@@ -2248,55 +2257,70 @@ class MessagesController extends Controller {
             if ($domain !== '') $heloHost = $domain;
         }
 
-        $this->lastMailError = '';
-
         if ($host === '' || $from === '') {
             $this->lastMailError = 'Λείπουν βασικές SMTP ρυθμίσεις (host/from).';
-            return false;
+            return null;
         }
 
         if ($user !== '' && $pass === '') {
             $this->lastMailError = 'Το SMTP_PASS είναι κενό. Ορίστε σωστό κωδικό SMTP στο environment του server.';
-            return false;
+            return null;
         }
 
         if (!in_array($secure, ['tls', 'ssl'], true)) {
             $this->lastMailError = 'Μη υποστηριζόμενη τιμή SMTP_SECURE. Επιτρεπτές τιμές: tls ή ssl.';
-            return false;
+            return null;
         }
 
-        $transportHost = $secure === 'ssl' ? 'ssl://' . $host : $host;
+        return [
+            'host'     => $host,
+            'port'     => $port,
+            'user'     => $user,
+            'pass'     => $pass,
+            'secure'   => $secure,
+            'from'     => $from,
+            'fromName' => $fromName,
+            'heloHost' => $heloHost,
+        ];
+    }
+
+    /**
+     * Ανοίγει νέα SMTP συνεδρία (connect + TLS + AUTH). Επιστρέφει null σε σφάλμα.
+     * @return resource|null
+     */
+    private function smtpOpen(array $cfg) {
+        $transportHost = $cfg['secure'] === 'ssl' ? 'ssl://' . $cfg['host'] : $cfg['host'];
         $errno = 0;
         $errstr = '';
         $socket = @stream_socket_client(
-            $transportHost . ':' . $port,
+            $transportHost . ':' . $cfg['port'],
             $errno,
             $errstr,
             15,
             STREAM_CLIENT_CONNECT,
-            $this->smtpSocketContext($host)
+            $this->smtpSocketContext($cfg['host'])
         );
         if (!$socket) {
             $this->lastMailError = 'SMTP σύνδεση απέτυχε: ' . $errstr . ' (' . $errno . ')';
-            return false;
+            return null;
         }
 
         stream_set_timeout($socket, 20);
 
         if (!$this->smtpExpect($socket, [220])) {
             fclose($socket);
-            return false;
+            return null;
         }
 
-        if (!$this->smtpCommand($socket, 'EHLO ' . $heloHost, [250])) {
+        if (!$this->smtpCommand($socket, 'EHLO ' . $cfg['heloHost'], [250])) {
             fclose($socket);
-            return false;
+            return null;
         }
 
-        if ($secure === 'tls') {
+        if ($cfg['secure'] === 'tls') {
             if (!$this->smtpCommand($socket, 'STARTTLS', [220])) {
                 fclose($socket);
-                return false;
+                return null;
             }
             error_clear_last();
             $cryptoOk = @stream_socket_enable_crypto($socket, true, $this->smtpTlsCryptoMethod());
@@ -2307,40 +2331,116 @@ class MessagesController extends Controller {
                     : 'άγνωστο (openssl)';
                 $this->lastMailError = 'Αποτυχία TLS handshake με SMTP server: ' . $detail;
                 fclose($socket);
-                return false;
+                return null;
             }
-            if (!$this->smtpCommand($socket, 'EHLO ' . $heloHost, [250])) {
+            if (!$this->smtpCommand($socket, 'EHLO ' . $cfg['heloHost'], [250])) {
                 fclose($socket);
-                return false;
+                return null;
             }
         }
 
-        if ($user !== '') {
-            if (!$this->smtpAuthenticate($socket, $user, $pass)) {
-                fclose($socket);
-                return false;
-            }
-        }
-
-        if (!$this->smtpCommand($socket, 'MAIL FROM:<' . $this->sanitizeEmail($from) . '>', [250])) {
+        if ($cfg['user'] !== '' && !$this->smtpAuthenticate($socket, $cfg['user'], $cfg['pass'])) {
             fclose($socket);
-            return false;
+            return null;
         }
+
+        return $socket;
+    }
+
+    /**
+     * Κλείνει την ανοιχτή SMTP συνεδρία, αν υπάρχει.
+     */
+    private function smtpClose(bool $graceful = true): void {
+        if ($this->smtpSocket === null) {
+            return;
+        }
+        $socket = $this->smtpSocket;
+        $this->smtpSocket = null;
+        if ($graceful) {
+            $previousError = $this->lastMailError;
+            @$this->smtpCommand($socket, 'QUIT', [221]);
+            $this->lastMailError = $previousError;
+        }
+        @fclose($socket);
+    }
+
+    public function __destruct() {
+        $this->smtpClose(true);
+    }
+
+    private function sendViaSmtp(string $to, string $subject, string $body): bool {
+        $this->lastMailError = '';
 
         $recipient = $this->sanitizeEmail($to);
         if ($recipient === '') {
             $this->lastMailError = 'Δεν υπάρχουν έγκυρες διευθύνσεις παραληπτών.';
-            fclose($socket);
+            return false;
+        }
+
+        $cfg = $this->smtpConfig();
+        if ($cfg === null) {
+            return false;
+        }
+
+        // Μία σύνδεση/authentication για όλη την παρτίδα· μόνο το MAIL FROM..DATA
+        // επαναλαμβάνεται ανά παραλήπτη. Αν ο server έκλεισε την επαναχρησιμοποιούμενη
+        // σύνδεση, ξαναδοκιμάζουμε μία φορά με καθαρή συνεδρία.
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $reused = $this->smtpSocket !== null;
+            if (!$reused) {
+                $socket = $this->smtpOpen($cfg);
+                if ($socket === null) {
+                    return false;
+                }
+                $this->smtpSocket = $socket;
+            }
+
+            if ($this->smtpDeliver($this->smtpSocket, $cfg, $recipient, $subject, $body)) {
+                return true;
+            }
+
+            $deliveryError = $this->lastMailError;
+            $serverResponded = $this->smtpLastCode > 0;
+
+            if ($serverResponded) {
+                // Ο server απάντησε, άρα η σύνδεση ζει: καθαρίζουμε την κατάσταση
+                // και τη κρατάμε για τον επόμενο παραλήπτη.
+                @$this->smtpCommand($this->smtpSocket, 'RSET', [250]);
+                $this->lastMailError = $deliveryError;
+                return false;
+            }
+
+            $this->smtpClose(false);
+            if ($reused && $attempt === 0) {
+                $this->lastMailError = '';
+                continue;
+            }
+
+            $this->lastMailError = $deliveryError;
+            return false;
+        }
+
+        return false;
+    }
+
+    /**
+     * Στέλνει ένα μήνυμα πάνω σε ήδη ανοιχτή, authenticated SMTP συνεδρία.
+     * @param resource $socket
+     */
+    private function smtpDeliver($socket, array $cfg, string $recipient, string $subject, string $body): bool {
+        $host     = $cfg['host'];
+        $from     = $cfg['from'];
+        $fromName = $cfg['fromName'];
+
+        if (!$this->smtpCommand($socket, 'MAIL FROM:<' . $this->sanitizeEmail($from) . '>', [250])) {
             return false;
         }
 
         if (!$this->smtpCommand($socket, 'RCPT TO:<' . $recipient . '>', [250, 251])) {
-            fclose($socket);
             return false;
         }
 
         if (!$this->smtpCommand($socket, 'DATA', [354])) {
-            fclose($socket);
             return false;
         }
 
@@ -2379,14 +2479,7 @@ class MessagesController extends Controller {
         $payload = preg_replace('/(?m)^\./', '..', $payload);
         fwrite($socket, $payload . "\r\n.\r\n");
 
-        if (!$this->smtpExpect($socket, [250])) {
-            fclose($socket);
-            return false;
-        }
-
-        $this->smtpCommand($socket, 'QUIT', [221]);
-        fclose($socket);
-        return true;
+        return $this->smtpExpect($socket, [250]);
     }
 
     private function smtpCommand($socket, string $command, array $okCodes): bool {
@@ -2429,6 +2522,7 @@ class MessagesController extends Controller {
         }
 
         $code = (int)substr($response, 0, 3);
+        $this->smtpLastCode = $code;
         if (!in_array($code, $okCodes, true)) {
             $this->lastMailError = trim($response) !== '' ? trim($response) : 'Άγνωστη απάντηση SMTP server.';
             return false;
@@ -2769,6 +2863,7 @@ class MessagesController extends Controller {
                 }
             }
             $result = $failedCount === 0;
+            $this->smtpClose(true);
         } elseif ($mode === 'real' && empty($addresses)) {
             $result = false;
             $errorDetail = 'Δεν βρέθηκαν ενεργοί παραλήπτες (send_email1/send_email2).';
