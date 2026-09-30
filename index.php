@@ -73,6 +73,28 @@ session_set_cookie_params([
 ini_set('session.use_strict_mode', '1');
 session_start();
 
+// Bearer token authentication για το Android/iOS app. Γίνεται μετά το session_start
+// ώστε ο browser να συνεχίζει να χρησιμοποιεί κανονικά το session cookie.
+Auth::authenticateBearerToken();
+
+// CORS μόνο για ρητά δηλωμένα origins (Capacitor). Δεν επιτρέπονται credentials:
+// η ταυτοποίηση του app γίνεται με token, όχι με cookie.
+if (API_ALLOWED_ORIGINS !== '' && !empty($_SERVER['HTTP_ORIGIN']) && !headers_sent()) {
+    $allowed = array_filter(array_map('trim', explode(',', API_ALLOWED_ORIGINS)));
+    $origin  = (string)$_SERVER['HTTP_ORIGIN'];
+    if (in_array($origin, $allowed, true)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Vary: Origin');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Authorization, Content-Type');
+        header('Access-Control-Max-Age: 600');
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+            http_response_code(204);
+            exit;
+        }
+    }
+}
+
 // Dispatch
 $router = new Router();
 $router->dispatch();

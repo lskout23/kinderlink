@@ -85,6 +85,12 @@ class Controller {
     }
 
     protected function verifyCsrf(): void {
+        // Τα Bearer tokens δεν στέλνονται αυτόματα από τον browser, άρα δεν
+        // υπάρχει CSRF έκθεση σε αιτήματα του native app.
+        if (Auth::isTokenAuth()) {
+            return;
+        }
+
         $token = $_POST['_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
         if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
             // For AJAX requests return JSON, for web form submissions redirect back with message.

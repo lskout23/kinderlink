@@ -97,6 +97,18 @@ class GroupsController extends Controller {
         $this->json(['success' => true]);
     }
 
+    /** JSON: child ids currently assigned to a group. */
+    public function apiChildrenInGroup(): void {
+        Auth::requireRole('admin');
+
+        $groupId = (int)($_POST['group_id'] ?? 0);
+        if ($groupId <= 0) { $this->json(['error' => 'Μη έγκυρο τμήμα.'], 422); return; }
+
+        $stmt = $this->db->prepare('SELECT child_id FROM children_groups WHERE group_id=?');
+        $stmt->execute([$groupId]);
+        $this->json(['child_ids' => array_map('intval', array_column($stmt->fetchAll(), 'child_id'))]);
+    }
+
     /** Assign children to a group */
     public function apiAssignChildren(): void {
         Auth::requireRole('admin');

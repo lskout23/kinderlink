@@ -196,6 +196,13 @@ define('DB_CHARSET', app_env('DB_CHARSET', 'utf8mb4'));
 define('SESSION_NAME', app_env('SESSION_NAME', 'kinderlink_session'));
 define('SESSION_LIFETIME', (int)app_env('SESSION_LIFETIME', 3600 * 8)); // 8 hours
 
+// API tokens (Android/iOS app). Κυλιόμενη λήξη: ανανεώνεται σε κάθε χρήση.
+define('API_TOKEN_TTL_DAYS', max(1, (int)app_env('API_TOKEN_TTL_DAYS', 30)));
+// Κόμματα επιτρεπόμενων origins για CORS. Κενό = απενεργοποιημένο.
+define('API_ALLOWED_ORIGINS', trim((string)app_env('API_ALLOWED_ORIGINS', '')));
+// Μέγιστες ταυτόχρονες συσκευές ανά χρήστη· τα παλιότερα tokens ανακαλούνται.
+define('API_TOKEN_MAX_PER_USER', max(1, (int)app_env('API_TOKEN_MAX_PER_USER', 10)));
+
 // Email (SMTP)
 define('SMTP_HOST', app_env('SMTP_HOST', ''));
 define('SMTP_PORT', (int)app_env('SMTP_PORT', 465));

@@ -101,6 +101,68 @@ class ParametersController extends Controller {
         $this->redirect('/administration/setup-parameters?saved=1');
     }
 
+    /** JSON: current parameter values + health info, for the mobile app. */
+    public function apiIndex(): void {
+        Auth::requireRole('admin');
+
+        $params = $this->db->query('SELECT param_key, param_value FROM parameters')->fetchAll();
+        $p = [];
+        foreach ($params as $row) $p[$row['param_key']] = $row['param_value'];
+
+        $smtpPass = app_env('SMTP_PASS', '');
+        $smtpSource = function_exists('app_env_source') ? app_env_source('SMTP_PASS') : 'unknown';
+
+        try {
+            $attendanceReady = (new Attendance($this->db))->isReady();
+        } catch (Throwable $e) {
+            $attendanceReady = false;
+        }
+
+        $this->json([
+            'email_mode' => $p['email_mode'] ?? 'virtual',
+            'school_name' => $p['school_name'] ?? '',
+            'photo_hidden_grace_days' => $this->normalizeParameterInt(
+                $p['photo_hidden_grace_days'] ?? null,
+                self::PHOTO_HIDDEN_GRACE_DAYS_DEFAULT, self::PHOTO_HIDDEN_GRACE_DAYS_MIN, self::PHOTO_HIDDEN_GRACE_DAYS_MAX
+            ),
+            'photo_retention_days' => $this->normalizeParameterInt(
+                $p['photo_retention_days'] ?? null,
+                self::PHOTO_RETENTION_DAYS_DEFAULT, self::PHOTO_RETENTION_DAYS_MIN, self::PHOTO_RETENTION_DAYS_MAX
+            ),
+            'smtp_configured' => $smtpPass !== '',
+            'smtp_source' => $smtpSource,
+            'attendance_ready' => $attendanceReady,
+        ]);
+    }
+
+    /** JSON variant of save(), for the mobile app. */
+    public function apiSave(): void {
+        Auth::requireRole('admin');
+        $this->verifyCsrf();
+
+        $emailMode  = in_array($_POST['email_mode'] ?? '', ['real', 'virtual']) ? $_POST['email_mode'] : 'virtual';
+        $schoolName = trim($_POST['school_name'] ?? '');
+        $photoHiddenGraceDays = $this->normalizeParameterInt(
+            $_POST['photo_hidden_grace_days'] ?? null,
+            self::PHOTO_HIDDEN_GRACE_DAYS_DEFAULT, self::PHOTO_HIDDEN_GRACE_DAYS_MIN, self::PHOTO_HIDDEN_GRACE_DAYS_MAX
+        );
+        $photoRetentionDays = $this->normalizeParameterInt(
+            $_POST['photo_retention_days'] ?? null,
+            self::PHOTO_RETENTION_DAYS_DEFAULT, self::PHOTO_RETENTION_DAYS_MIN, self::PHOTO_RETENTION_DAYS_MAX
+        );
+
+        $this->db->prepare("INSERT INTO parameters (param_key, param_value) VALUES ('email_mode',?) ON DUPLICATE KEY UPDATE param_value=?")
+                 ->execute([$emailMode, $emailMode]);
+        $this->db->prepare("INSERT INTO parameters (param_key, param_value) VALUES ('school_name',?) ON DUPLICATE KEY UPDATE param_value=?")
+                 ->execute([$schoolName, $schoolName]);
+        $this->db->prepare("INSERT INTO parameters (param_key, param_value) VALUES ('photo_hidden_grace_days',?) ON DUPLICATE KEY UPDATE param_value=?")
+                 ->execute([(string)$photoHiddenGraceDays, (string)$photoHiddenGraceDays]);
+        $this->db->prepare("INSERT INTO parameters (param_key, param_value) VALUES ('photo_retention_days',?) ON DUPLICATE KEY UPDATE param_value=?")
+                 ->execute([(string)$photoRetentionDays, (string)$photoRetentionDays]);
+
+        $this->json(['success' => true]);
+    }
+
     private function normalizeParameterInt(mixed $value, int $default, int $min, int $max): int {
         if (!is_numeric($value)) {
             return $default;

@@ -33,6 +33,26 @@ class ParentController extends Controller {
         ]);
     }
 
+    /**
+     * Lightweight list for mobile app bootstrap.
+     */
+    public function apiChildren(): void {
+        Auth::requireRole('parent');
+        $this->verifyCsrf();
+
+        $user = Auth::user();
+        $stmt = $this->db->prepare(
+            'SELECT c.id, c.first_name, c.last_name,
+                    (SELECT COUNT(*) FROM messages m WHERE m.child_id = c.id AND DATE(m.message_date) = CURDATE()) AS today_count
+             FROM children c
+             WHERE c.parent_user_id = ? AND c.active = 1
+             ORDER BY c.last_name, c.first_name'
+        );
+        $stmt->execute([$user['id']]);
+
+        $this->json(['children' => $stmt->fetchAll()]);
+    }
+
     public function apiMessages(): void {
         Auth::requireRole('parent');
 

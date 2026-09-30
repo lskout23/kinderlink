@@ -278,6 +278,134 @@ class AuthController extends Controller {
         $this->redirect('/');
     }
 
+    // ── Token authentication για το Android/iOS app ──────────────────
+
+    /**
+     * POST /api/auth/token — ανταλλάσσει username/password με Bearer token.
+     * Δεν χρησιμοποιεί CSRF ή session: ο client δεν είναι browser.
+     */
+    public function apiIssueToken(): void {
+        $username = trim((string)($_POST['username'] ?? ''));
+        $password = (string)($_POST['password'] ?? '');
+        $device   = mb_substr(trim((string)($_POST['device_name'] ?? '')), 0, 100, 'UTF-8');
+        $platform = strtolower(trim((string)($_POST['platform'] ?? '')));
+        if (!in_array($platform, ['android', 'ios', 'web'], true)) {
+            $platform = 'other';
+        }
+
+        // Ίδιο throttling με τη φόρμα σύνδεσης.
+        $rateKey = $this->loginRateKey($username);
+        $state   = $this->getLoginRateState($rateKey);
+        if (($state['locked_until'] ?? 0) > time()) {
+            $minutes = (int)ceil((($state['locked_until'] ?? 0) - time()) / 60);
+            $this->json(['error' => 'Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε περίπου ' . max(1, $minutes) . ' λεπτό/ά.'], 429);
+            return;
+        }
+
+        if ($username === '' || $password === '') {
+            $this->json(['error' => 'Συμπληρώστε όνομα χρήστη και κωδικό.'], 422);
+            return;
+        }
+
+        $stmt = $this->db->prepare(
+            'SELECT id, username, password, name, email, role, active, temp_password_expires
+             FROM users WHERE username = ? LIMIT 1'
+        );
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+
+        if (!$user || !Auth::verifyPassword($password, $user['password'])) {
+            $this->registerLoginFailure($rateKey);
+            $this->json(['error' => 'Λάθος όνομα χρήστη ή κωδικός.'], 401);
+            return;
+        }
+
+        if (!$user['active']) {
+            $this->json(['error' => 'Ο λογαριασμός σας είναι ανενεργός.'], 403);
+            return;
+        }
+
+        $temporaryPassword = false;
+        if (!empty($user['temp_password_expires'])) {
+            $expires = strtotime((string)$user['temp_password_expires']);
+            if ($expires && $expires < time()) {
+                $this->json(['error' => 'Ο προσωρινός κωδικός έχει λήξει. Ζητήστε νέο κωδικό ανάκτησης.'], 401);
+                return;
+            }
+            $temporaryPassword = true;
+        }
+
+        $this->clearLoginRateState($rateKey);
+
+        $rawToken = bin2hex(random_bytes(32));
+        try {
+            $this->db->prepare(
+                'INSERT INTO api_tokens (user_id, token_hash, device_name, platform, expires_at)
+                 VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ' . (int)API_TOKEN_TTL_DAYS . ' DAY))'
+            )->execute([$user['id'], hash('sha256', $rawToken), $device, $platform]);
+
+            $this->revokeExcessTokens((int)$user['id']);
+        } catch (Throwable $e) {
+            error_log('[api token] ' . get_class($e) . ' code=' . $e->getCode());
+            $this->json(['error' => 'Η έκδοση token απέτυχε. Ελέγξτε ότι έχει εφαρμοστεί το migration api_tokens.'], 503);
+            return;
+        }
+
+        $this->json([
+            'token'      => $rawToken,
+            'expires_in' => (int)API_TOKEN_TTL_DAYS * 86400,
+            'temp_password' => $temporaryPassword,
+            'user' => [
+                'id'       => (int)$user['id'],
+                'username' => $user['username'],
+                'name'     => $user['name'],
+                'email'    => $user['email'],
+                'role'     => $user['role'],
+            ],
+        ]);
+    }
+
+    /** POST /api/auth/me — στοιχεία του κατόχου του token. */
+    public function apiMe(): void {
+        Auth::requireLogin();
+        if (!Auth::isTokenAuth()) {
+            $this->json(['error' => 'Το endpoint υποστηρίζει μόνο Bearer token authentication.'], 400);
+            return;
+        }
+        $this->json(['user' => Auth::user()]);
+    }
+
+    /** POST /api/auth/revoke — ανακαλεί το token του τρέχοντος request. */
+    public function apiRevokeToken(): void {
+        Auth::requireLogin();
+
+        $tokenId = Auth::currentTokenId();
+        if ($tokenId <= 0) {
+            $this->json(['error' => 'Το αίτημα δεν έγινε με token.'], 400);
+            return;
+        }
+
+        $this->db->prepare('UPDATE api_tokens SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL')
+                 ->execute([$tokenId]);
+        $this->json(['success' => true]);
+    }
+
+    /** Κρατά μόνο τις πιο πρόσφατες συσκευές ανά χρήστη. */
+    private function revokeExcessTokens(int $userId): void {
+        $stmt = $this->db->prepare(
+            'SELECT id FROM api_tokens
+             WHERE user_id = ? AND revoked_at IS NULL AND expires_at > NOW()
+             ORDER BY created_at DESC, id DESC'
+        );
+        $stmt->execute([$userId]);
+        $ids = array_column($stmt->fetchAll(), 'id');
+
+        $excess = array_slice($ids, (int)API_TOKEN_MAX_PER_USER);
+        foreach ($excess as $id) {
+            $this->db->prepare('UPDATE api_tokens SET revoked_at = NOW() WHERE id = ?')->execute([$id]);
+        }
+    }
+
     /**
      * Session ping — keep-alive check
      * Returns JSON: {alive: true/false}

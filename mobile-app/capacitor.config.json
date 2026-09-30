@@ -1,0 +1,6 @@
+{
+  "appId": "gr.kinderlink.mobile",
+  "appName": "KinderLink",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

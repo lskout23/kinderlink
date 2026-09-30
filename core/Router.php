@@ -12,6 +12,9 @@ class Router {
         $this->add('POST', '/',        'AuthController',      'login');
         $this->add('POST', '/logout',  'AuthController',      'logout');
         $this->add('GET',  '/api/auth/ping',  'AuthController',      'ping');
+        $this->add('POST', '/api/auth/token', 'AuthController',      'apiIssueToken');
+        $this->add('POST', '/api/auth/me',    'AuthController',      'apiMe');
+        $this->add('POST', '/api/auth/revoke','AuthController',      'apiRevokeToken');
         $this->add('GET',  '/forgot-password', 'AuthController', 'forgotPasswordPage');
         $this->add('POST', '/forgot-password', 'AuthController', 'forgotPassword');
         $this->add('GET',  '/forgot-username', 'AuthController', 'forgotUsernamePage');
@@ -19,6 +22,7 @@ class Router {
 
         // Admin: Dashboard
         $this->add('GET',  '/dashboard',                           'DashboardController', 'index');
+        $this->add('POST', '/api/dashboard/summary',               'DashboardController', 'apiSummary');
 
         // Admin: Children
         $this->add('GET',  '/administration/setup-children',       'ChildrenController',  'index');
@@ -35,6 +39,7 @@ class Router {
 
         // Admin: Children per group
         $this->add('GET',  '/administration/children-per-group',   'GroupsController',    'childrenPerGroup');
+        $this->add('POST', '/api/groups/children',                 'GroupsController',    'apiChildrenInGroup');
         $this->add('POST', '/api/groups/assign-children',          'GroupsController',    'apiAssignChildren');
 
         // Admin: Activities
@@ -46,17 +51,22 @@ class Router {
         // Admin: Parameters
         $this->add('GET',  '/administration/setup-parameters',     'ParametersController','index');
         $this->add('POST', '/administration/setup-parameters',     'ParametersController','save');
+        $this->add('POST', '/api/parameters',                      'ParametersController','apiIndex');
+        $this->add('POST', '/api/parameters/save',                 'ParametersController','apiSave');
         $this->add('POST', '/api/parameters/attendance-migration',  'ParametersController','apiMigrateAttendance');
 
         // Admin: Email Template
         $this->add('GET',  '/administration/email-template',       'EmailTemplateController','index');
         $this->add('POST', '/administration/email-template',       'EmailTemplateController','save');
+        $this->add('POST', '/api/email-template',                  'EmailTemplateController','apiIndex');
+        $this->add('POST', '/api/email-template/save',             'EmailTemplateController','apiSave');
 
         // Admin: Personal Settings
         $this->add('GET',  '/administration/personal-details',     'PersonalController',  'index');
         $this->add('POST', '/administration/personal-details',     'PersonalController',  'save');
         $this->add('GET',  '/parent/personal-details',             'PersonalController',  'index');
         $this->add('POST', '/parent/personal-details',             'PersonalController',  'save');
+        $this->add('POST', '/api/personal/save',                   'PersonalController',  'apiSave');
 
         // Admin: Users
         $this->add('GET',  '/administration/setup-users',          'UsersController',     'index');
@@ -68,6 +78,7 @@ class Router {
 
         // Messages
         $this->add('GET',  '/messages/create-messages',            'MessagesController',  'create');
+        $this->add('POST', '/api/messages/my-groups',              'MessagesController',  'apiMyGroups');
         $this->add('POST', '/api/messages/list-by-group',          'MessagesController',  'apiListByGroup');
         $this->add('POST', '/api/messages/attendance',             'MessagesController',  'apiAttendance');
         $this->add('POST', '/api/messages/save',                   'MessagesController',  'apiSave');
@@ -114,6 +125,7 @@ class Router {
 
         // Parent portal
         $this->add('GET',  '/parent/dashboard',                    'ParentController',    'index');
+        $this->add('POST', '/api/parent/children',                 'ParentController',    'apiChildren');
         $this->add('POST', '/api/parent/messages',                 'ParentController',    'apiMessages');
 
         // Inbox (parent ↔ teacher private messages)

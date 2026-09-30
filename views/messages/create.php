@@ -59,7 +59,7 @@
   </div>
 
   <div class="section-box" style="flex:1;min-width:240px;">
-    <div class="section-title section-title-icon"><span data-icon="mail" aria-hidden="true"></span>Παρατηρήσεις (email μόνο)</div>
+    <div class="section-title section-title-icon"><span data-icon="mail" aria-hidden="true"></span>Παρατηρήσεις (προσθ/αντ)</div>
     <div class="section-body" style="padding:8px;">
       <div style="max-height:200px;overflow-y:auto;" id="acts-email-list">
         <?php foreach ($actEmailOnly as $a): ?>

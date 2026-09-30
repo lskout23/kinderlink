@@ -4,7 +4,7 @@
 
   <!-- ACTIVITIES (both) -->
   <div class="section-box" style="flex:1;min-width:280px;">
-    <div class="section-title">Δραστηριότητες (Email + Μήνυμα)</div>
+    <div class="section-title">Δραστηριότητες</div>
     <div class="section-body" style="padding:0;">
       <table class="data-table" id="act-both-table">
         <thead>
@@ -26,7 +26,7 @@
 
   <!-- OBSERVATIONS (email_only) -->
   <div class="section-box" style="flex:1;min-width:280px;">
-    <div class="section-title">Παρατηρήσεις (Μόνο Email)</div>
+    <div class="section-title">Παρατηρήσεις</div>
     <div class="section-body" style="padding:0;">
       <table class="data-table" id="act-email-table">
         <thead>

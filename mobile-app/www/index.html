@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>KinderLink Mobile</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=5">
+</head>
+<body>
+  <div class="bg-orb bg-orb-a" aria-hidden="true"></div>
+  <div class="bg-orb bg-orb-b" aria-hidden="true"></div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">KinderLink Mobile</p>
+        <h1>Σύνδεση Σχολείου - Οικογένειας</h1>
+      </div>
+      <button id="logout-btn" class="btn ghost hidden" type="button">Αποσύνδεση</button>
+    </header>
+
+    <section class="panel settings-panel" id="settings-panel">
+      <div class="panel-head">
+        <h2>Server Ρυθμίσεις</h2>
+        <span class="chip" id="server-chip">offline</span>
+      </div>
+      <label class="field">
+        <span>API Base URL</span>
+        <input id="api-base" type="text" placeholder="http://10.0.2.2:8094">
+      </label>
+      <p class="hint">Android emulator: <strong>http://10.0.2.2:8094</strong> | Πραγματική συσκευή: το local IP του PC σας (π.χ. http://192.168.1.12:8094).</p>
+      <button id="save-settings" class="btn secondary" type="button">Αποθήκευση Ρύθμισης</button>
+    </section>
+
+    <section id="login-panel" class="panel">
+      <div class="panel-head">
+        <h2>Είσοδος</h2>
+      </div>
+      <form id="login-form">
+        <label class="field">
+          <span>Username</span>
+          <input id="username" type="text" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Κωδικός</span>
+          <input id="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn primary" type="submit">Σύνδεση</button>
+      </form>
+    </section>
+
+    <section id="user-panel" class="panel hidden">
+      <div class="panel-head">
+        <h2 id="welcome-title">Καλωσήρθες</h2>
+        <span id="role-chip" class="chip"></span>
+      </div>
+      <p id="user-line" class="muted"></p>
+    </section>
+
+    <nav id="app-nav" class="app-nav hidden"></nav>
+
+    <div id="view-root">
+      <section id="view-dashboard" class="view panel hidden" data-view="dashboard">
+        <div class="panel-head">
+          <h2>Κέντρο Ελέγχου</h2>
+          <button class="btn ghost" type="button" data-refresh="dashboard">Ανανέωση</button>
+        </div>
+        <div id="dashboard-stats" class="stats-grid"></div>
+      </section>
+
+      <section id="view-children" class="view panel hidden" data-view="children">
+        <div class="panel-head">
+          <h2>Παιδιά</h2>
+          <button class="btn primary" type="button" id="children-add-btn">+ Νέο</button>
+        </div>
+        <div class="toolbar-row">
+          <input type="search" id="children-search" placeholder="Αναζήτηση όνομα/email...">
+        </div>
+        <div class="btn-row hidden" id="children-bulk-bar">
+          <span class="hint" id="children-bulk-count"></span>
+          <button class="btn ghost" type="button" id="children-bulk-activate">Ενεργοποίηση</button>
+          <button class="btn ghost" type="button" id="children-bulk-deactivate">Απενεργοποίηση</button>
+          <button class="btn ghost" type="button" id="children-bulk-clone">Κλωνοποίηση</button>
+          <button class="btn danger" type="button" id="children-bulk-delete">Διαγραφή</button>
+        </div>
+        <div id="children-table"></div>
+        <div class="pagination" id="children-pagination"></div>
+      </section>
+
+      <section id="view-groups" class="view panel hidden" data-view="groups">
+        <div class="panel-head">
+          <h2>Τμήματα</h2>
+          <button class="btn primary" type="button" id="groups-add-btn">+ Νέο</button>
+        </div>
+        <div id="groups-table"></div>
+        <div class="pagination" id="groups-pagination"></div>
+      </section>
+
+      <section id="view-groups-assign" class="view panel hidden" data-view="groups-assign">
+        <div class="panel-head"><h2>Παιδιά ανά Τμήμα</h2></div>
+        <label class="field">
+          <span>Τμήμα</span>
+          <select id="ga-group"></select>
+        </label>
+        <div id="ga-children" class="checkbox-list"></div>
+        <button class="btn primary" type="button" id="ga-save-btn">Αποθήκευση Ανάθεσης</button>
+      </section>
+
+      <section id="view-activities" class="view panel hidden" data-view="activities">
+        <div class="panel-head">
+          <h2>Δραστηριότητες / Παρατηρήσεις</h2>
+          <button class="btn primary" type="button" id="activities-add-btn">+ Νέο</button>
+        </div>
+        <div class="tabs" id="activities-tabs">
+          <button class="tab active" data-type="both" type="button">Δραστηριότητα</button>
+          <button class="tab" data-type="email_only" type="button">Παρατήρηση</button>
+        </div>
+        <div id="activities-table"></div>
+      </section>
+
+      <section id="view-users" class="view panel hidden" data-view="users">
+        <div class="panel-head">
+          <h2>Χρήστες</h2>
+          <button class="btn primary" type="button" id="users-add-btn">+ Νέο</button>
+        </div>
+        <div id="users-table"></div>
+        <div class="pagination" id="users-pagination"></div>
+      </section>
+
+      <section id="view-financial-activities" class="view panel hidden" data-view="financial-activities">
+        <div class="panel-head">
+          <h2>Δραστηριότητες Εσόδων</h2>
+          <button class="btn primary" type="button" id="fa-add-btn">+ Νέο</button>
+        </div>
+        <div id="fa-table"></div>
+      </section>
+
+      <section id="view-financial-income" class="view panel hidden" data-view="financial-income">
+        <div class="panel-head"><h2>Έσοδα ανά Παιδί</h2></div>
+        <div class="toolbar-row">
+          <select id="fi-child"></select>
+          <button class="btn primary" type="button" id="fi-add-btn">+ Νέα Εγγραφή</button>
+        </div>
+        <h3>Εκκρεμείς</h3>
+        <div id="fi-pending-table"></div>
+        <h3>Ιστορικό</h3>
+        <div id="fi-full-table"></div>
+      </section>
+
+      <section id="view-financial-income-totals" class="view panel hidden" data-view="financial-income-totals">
+        <div class="panel-head"><h2>Σύνολα Εσόδων</h2></div>
+        <div class="filters-grid">
+          <label class="field"><span>Από</span><input id="fit-from" type="date"></label>
+          <label class="field"><span>Έως</span><input id="fit-to" type="date"></label>
+          <button class="btn secondary" type="button" id="fit-search-btn">Αναζήτηση</button>
+        </div>
+        <div id="fit-table"></div>
+      </section>
+
+      <section id="view-financial-expenses" class="view panel hidden" data-view="financial-expenses">
+        <div class="panel-head">
+          <h2>Έξοδα</h2>
+          <button class="btn primary" type="button" id="fe-add-btn">+ Νέα Εγγραφή</button>
+        </div>
+        <div class="filters-grid">
+          <label class="field"><span>Από</span><input id="fe-from" type="date"></label>
+          <label class="field"><span>Έως</span><input id="fe-to" type="date"></label>
+          <button class="btn secondary" type="button" id="fe-search-btn">Αναζήτηση</button>
+        </div>
+        <div id="fe-table"></div>
+      </section>
+
+      <section id="view-parameters" class="view panel hidden" data-view="parameters">
+        <div class="panel-head"><h2>Παράμετροι</h2></div>
+        <div id="params-health" class="stack"></div>
+        <div id="params-attendance" class="stack"></div>
+        <form id="params-form">
+          <label class="field">
+            <span>Λειτουργία Email</span>
+            <select id="p-email-mode">
+              <option value="virtual">Δοκιμαστική (δεν στέλνει πραγματικά)</option>
+              <option value="real">Πραγματική αποστολή</option>
+            </select>
+          </label>
+          <label class="field"><span>Όνομα Σχολείου</span><input id="p-school-name" type="text"></label>
+          <label class="field"><span>Ημέρες διατήρησης κρυμμένων φωτογραφιών (1-60)</span><input id="p-photo-hidden" type="number" min="1" max="60"></label>
+          <label class="field"><span>Ημέρες διατήρησης φωτογραφιών (1-730)</span><input id="p-photo-retention" type="number" min="1" max="730"></label>
+          <button class="btn primary" type="submit">Αποθήκευση</button>
+        </form>
+      </section>
+
+      <section id="view-email-template" class="view panel hidden" data-view="email-template">
+        <div class="panel-head"><h2>Πρότυπο Email</h2></div>
+        <form id="et-form">
+          <label class="field"><span>Θέμα</span><input id="et-subject" type="text"></label>
+          <label class="field"><span>Περιεχόμενο (HTML)</span><textarea id="et-html" rows="10"></textarea></label>
+          <p class="hint">Placeholders: |*name*| |*breakfast*| |*lunch*| |*mood*| |*sleep*| |*WC_txt*| |*activity*| |*comments*|</p>
+          <button class="btn primary" type="submit">Αποθήκευση</button>
+        </form>
+      </section>
+
+      <section id="view-personal" class="view panel hidden" data-view="personal">
+        <div class="panel-head"><h2>Προσωπικά Στοιχεία</h2></div>
+        <form id="personal-profile-form">
+          <h3>Προφίλ</h3>
+          <label class="field"><span>Όνομα</span><input id="pp-name" type="text" required></label>
+          <label class="field"><span>Username</span><input id="pp-username" type="text" required></label>
+          <label class="field"><span>Email</span><input id="pp-email" type="email"></label>
+          <button class="btn primary" type="submit">Αποθήκευση Προφίλ</button>
+        </form>
+        <form id="personal-password-form">
+          <h3>Αλλαγή Κωδικού</h3>
+          <label class="field"><span>Τρέχων Κωδικός</span><input id="pw-current" type="password"></label>
+          <label class="field"><span>Νέος Κωδικός</span><input id="pw-new" type="password"></label>
+          <label class="field"><span>Επιβεβαίωση</span><input id="pw-confirm" type="password"></label>
+          <p class="hint">Τουλάχιστον 10 χαρακτήρες, 1 πεζό, 1 κεφαλαίο, 1 αριθμό, 1 σύμβολο.</p>
+          <button class="btn primary" type="submit">Αλλαγή Κωδικού</button>
+        </form>
+      </section>
+
+      <section id="view-messages-create" class="view panel hidden" data-view="messages-create">
+        <div class="panel-head"><h2>Δημιουργία Μηνυμάτων</h2></div>
+        <div class="filters-grid">
+          <label class="field"><span>Τμήμα</span><select id="mc-group"></select></label>
+          <label class="field"><span>Ημερομηνία</span><input id="mc-date" type="date"></label>
+          <button class="btn secondary" type="button" id="mc-load-btn">Φόρτωση</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn ghost" type="button" id="mc-preview-btn">Προεπισκόπηση</button>
+          <button class="btn ghost" type="button" id="mc-clear-btn">Καθαρισμός</button>
+        </div>
+
+        <div class="activity-panels">
+          <div class="activity-panel">
+            <h3>Δραστηριότητες</h3>
+            <div id="mc-acts-both" class="checkbox-list"></div>
+            <div class="btn-row">
+              <button class="btn ghost" type="button" data-bulk="both" data-mode="replace">Αντικατάσταση</button>
+              <button class="btn ghost" type="button" data-bulk="both" data-mode="add">Πρόσθεση</button>
+            </div>
+          </div>
+          <div class="activity-panel">
+            <h3>Παρατηρήσεις</h3>
+            <div id="mc-acts-email" class="checkbox-list"></div>
+            <div class="btn-row">
+              <button class="btn ghost" type="button" data-bulk="email" data-mode="replace">Αντικατάσταση</button>
+              <button class="btn ghost" type="button" data-bulk="email" data-mode="add">Πρόσθεση</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="mc-rows" class="stack"></div>
+
+        <div class="photo-panel">
+          <h3>Φωτογραφίες (έως 5MB ανά εικόνα)</h3>
+          <div class="filters-grid">
+            <label class="field"><span>Λειτουργία</span>
+              <select id="mc-photo-mode">
+                <option value="single">Μεταφόρτωση σε ένα παιδί</option>
+                <option value="group">Μεταφόρτωση σε όλο το τμήμα</option>
+              </select>
+            </label>
+            <label class="field" id="mc-photo-child-wrap"><span>Παιδί</span><select id="mc-photo-child"></select></label>
+            <label class="field"><span>Αρχεία</span><input id="mc-photo-files" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple></label>
+          </div>
+          <div class="toolbar-row">
+            <button class="btn secondary" type="button" id="mc-photo-upload-btn">⬆ Μεταφόρτωση</button>
+            <label class="checkbox-field"><input type="checkbox" id="mc-photo-alldates"><span>Όλες οι ημερομηνίες</span></label>
+          </div>
+          <div id="mc-photo-list" class="photo-grid"></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" type="button" id="mc-save-btn">Αποθήκευση Όλων</button>
+          <button class="btn secondary" type="button" id="mc-send-btn">Αποστολή Email</button>
+        </div>
+      </section>
+
+      <section id="view-messages-list" class="view panel hidden" data-view="messages-list">
+        <div class="panel-head"><h2>Λίστα Μηνυμάτων</h2></div>
+        <div class="filters-grid">
+          <label class="field"><span>Τμήμα</span><select id="ml-group"><option value="">Όλα</option></select></label>
+          <label class="field"><span>Από</span><input id="ml-from" type="date"></label>
+          <label class="field"><span>Έως</span><input id="ml-to" type="date"></label>
+          <button class="btn secondary" type="button" id="ml-search-btn">Αναζήτηση</button>
+        </div>
+        <div class="btn-row hidden" id="ml-bulk-bar">
+          <span class="hint" id="ml-bulk-count"></span>
+          <button class="btn danger" type="button" id="ml-bulk-delete">Διαγραφή επιλεγμένων</button>
+        </div>
+        <div id="ml-table"></div>
+      </section>
+
+      <section id="view-free-email" class="view panel hidden" data-view="free-email">
+        <div class="panel-head"><h2>Ελεύθερο Email</h2></div>
+        <form id="fe2-form">
+          <label class="field"><span>Τμήμα</span><select id="fe2-group"></select></label>
+          <label class="field checkbox-field" id="fe2-sendall-wrap"><input id="fe2-sendall" type="checkbox"><span>Αποστολή σε όλα τα ενεργά παιδιά</span></label>
+          <label class="field"><span>Θέμα</span><input id="fe2-subject" type="text" required></label>
+          <label class="field"><span>Κείμενο</span><textarea id="fe2-body" rows="6" required></textarea></label>
+          <button class="btn primary" type="submit">Αποστολή</button>
+        </form>
+      </section>
+
+      <section id="parent-panel" class="view panel hidden" data-view="parent">
+        <div class="panel-head">
+          <h2>Ημερήσια Αναφορά Παιδιού</h2>
+          <button id="parent-refresh" class="btn ghost" type="button">Ανανέωση</button>
+        </div>
+        <div class="filters-grid">
+          <label class="field">
+            <span>Παιδί</span>
+            <select id="parent-child"></select>
+          </label>
+          <label class="field">
+            <span>Από</span>
+            <input id="parent-from" type="date">
+          </label>
+          <label class="field">
+            <span>Έως</span>
+            <input id="parent-to" type="date">
+          </label>
+        </div>
+        <div id="parent-empty" class="empty hidden"></div>
+        <div id="parent-rows" class="stack"></div>
+      </section>
+
+      <section id="staff-panel" class="view panel hidden" data-view="inbox">
+        <div class="panel-head">
+          <h2>Εισερχόμενα</h2>
+          <div class="btn-row">
+            <button id="inbox-new-btn" class="btn secondary hidden" type="button">+ Νέο Μήνυμα</button>
+            <button id="staff-refresh" class="btn ghost" type="button">Ανανέωση</button>
+          </div>
+        </div>
+        <div class="split-grid">
+          <div>
+            <h3>Συνομιλίες</h3>
+            <div id="thread-list" class="thread-list"></div>
+          </div>
+          <div>
+            <h3 id="thread-title">Επιλέξτε συνομιλία</h3>
+            <button class="btn ghost hidden" type="button" id="thread-delete-btn">🗑️ Διαγραφή συνομιλίας</button>
+            <div id="thread-messages" class="messages"></div>
+            <div class="reply-box">
+              <textarea id="reply-body" placeholder="Γράψτε απάντηση..."></textarea>
+              <button id="reply-btn" class="btn primary" type="button">Αποστολή</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modal-title">Τίτλος</h2>
+        <button id="modal-close" class="btn ghost" type="button">Κλείσιμο</button>
+      </div>
+      <form id="modal-form"></form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="./app.js?v=5" defer></script>
+</body>
+</html>

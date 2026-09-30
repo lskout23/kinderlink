@@ -54,6 +54,26 @@ class MessagesController extends Controller {
         ]);
     }
 
+    /** JSON: groups visible to the current user (admin sees all current groups, teacher only assigned ones). */
+    public function apiMyGroups(): void {
+        Auth::requireRole('admin', 'teacher');
+        $user = Auth::user();
+
+        if (Auth::isAdmin()) {
+            $rows = $this->db->query('SELECT id, name FROM `groups` WHERE is_current=1 ORDER BY name')->fetchAll();
+        } else {
+            $stmt = $this->db->prepare(
+                'SELECT g.id, g.name FROM `groups` g
+                 JOIN teacher_groups tg ON tg.group_id = g.id
+                 WHERE tg.user_id = ? AND g.is_current = 1 ORDER BY g.name'
+            );
+            $stmt->execute([$user['id']]);
+            $rows = $stmt->fetchAll();
+        }
+
+        $this->json(['rows' => $rows]);
+    }
+
     /** Return children of a group for a given date with existing message data */
     public function apiListByGroup(): void {
         Auth::requireRole('admin', 'teacher');

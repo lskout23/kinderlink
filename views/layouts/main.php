@@ -221,16 +221,16 @@
       </ul>
     </li>
     <li>
-      <a href="#"><span>Μηνύματα</span><span class="nav-caret" aria-hidden="true">▾</span></a>
+      <?php
+        $inboxUnreadStaff = 0;
+        try { $inboxUnreadStaff = (new InboxController)->countUnread($user); } catch (Throwable $e) {}
+      ?>
+      <a href="#"><span>Μηνύματα</span> <span data-inbox-badge style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;<?= $inboxUnreadStaff > 0 ? '' : 'display:none;' ?>"><?= (int)$inboxUnreadStaff ?></span><span class="nav-caret" aria-hidden="true">▾</span></a>
       <ul>
         <li><a href="<?= BASE_URL ?>/messages/create-messages">Δημιουργία Μηνυμάτων</a></li>
         <li><a href="<?= BASE_URL ?>/messages/message-list">Λίστα Μηνυμάτων</a></li>
         <li><a href="<?= BASE_URL ?>/messages/free-email">Ελεύθερο Email</a></li>
         <li class="separator"></li>
-        <?php
-          $inboxUnreadStaff = 0;
-          try { $inboxUnreadStaff = (new InboxController)->countUnread($user); } catch (Throwable $e) {}
-        ?>
         <li>
           <a href="<?= BASE_URL ?>/inbox">
             Μηνύματα Γονέων <span data-inbox-badge style="background:#e74c3c;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;<?= $inboxUnreadStaff > 0 ? '' : 'display:none;' ?>"><?= (int)$inboxUnreadStaff ?></span>
