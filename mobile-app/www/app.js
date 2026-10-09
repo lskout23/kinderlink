@@ -185,7 +185,7 @@ const NAV_BY_ROLE = {
     { view: 'personal', label: 'Προφίλ' }
   ],
   parent: [
-    { view: 'parent', label: 'Παιδί μου' },
+    { view: 'parent', label: 'Δραστηριότητες Παιδιού' },
     { view: 'inbox', label: 'Εισερχόμενα' },
     { view: 'personal', label: 'Προφίλ' }
   ]
@@ -584,6 +584,7 @@ function renderParentRow(row) {
       </div>
       <p><strong>WC:</strong> ${row.wc ? 'Ναι' : 'Όχι'}</p>
       <p><strong>Δραστηριότητες:</strong> ${escapeHtml(row.activities || '-')}</p>
+      <p><strong>Παρατηρήσεις:</strong> ${escapeHtml(row.observations || '-')}</p>
       <p><strong>Σχόλια:</strong> ${escapeHtml(row.comments || '-')}</p>
     </article>
   `;
@@ -1685,19 +1686,20 @@ async function loadMessagesCreateScreen() {
 
 function bulkApplyActivities(panel, mode) {
   const container = panel === 'email' ? els.mcActsEmail : els.mcActsBoth;
+  const targetField = panel === 'email' ? 'observations_txt' : 'activities_txt';
   const selected = Array.from(container.querySelectorAll('.act-cb:checked')).map((cb) => cb.value);
   if (!selected.length) { showToast('Επιλέξτε τουλάχιστον μία δραστηριότητα.'); return; }
+  // Items may contain commas, so match whole items between ", " separators.
+  const listKey = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
 
-  Array.from(els.mcRows.querySelectorAll('[data-field="activities_txt"]')).forEach((input) => {
+  Array.from(els.mcRows.querySelectorAll(`[data-field="${targetField}"]`)).forEach((input) => {
     if (mode === 'replace') {
       input.value = selected.join(', ');
       return;
     }
-    const existing = input.value.split(',').map((s) => s.trim()).filter(Boolean);
-    selected.forEach((name) => {
-      if (!existing.includes(name)) existing.push(name);
-    });
-    input.value = existing.join(', ');
+    const existing = `, ${listKey(input.value)}, `;
+    const toAdd = selected.filter((name) => !existing.includes(`, ${listKey(name)}, `));
+    if (toAdd.length) input.value = input.value.trim() ? `${input.value.trim()}, ${toAdd.join(', ')}` : toAdd.join(', ');
   });
   showToast('Οι δραστηριότητες εφαρμόστηκαν.');
 }
@@ -1730,6 +1732,7 @@ async function loadMessagesCreateRows() {
       </div>
       <label class="field checkbox-field"><input type="checkbox" data-field="wc" ${Number(r.wc) ? 'checked' : ''}><span>WC</span></label>
       <label class="field"><span>Δραστηριότητες</span><input type="text" data-field="activities_txt" value="${escapeHtml(r.activities_txt || '')}"></label>
+      <label class="field"><span>Παρατηρήσεις</span><textarea data-field="observations_txt" rows="2">${escapeHtml(r.observations_txt || '')}</textarea></label>
       <label class="field"><span>Σχόλια</span><textarea data-field="comments" rows="2">${escapeHtml(r.comments || '')}</textarea></label>
       ${state.mcAttendanceReady ? `<label class="field checkbox-field"><input type="checkbox" data-attendance="1" ${r.is_absent ? 'checked' : ''}><span>Απών σήμερα</span></label>` : ''}
       <p class="hint">Κατάσταση email: ${escapeHtml(r.email_status || 'pending')}</p>
@@ -1764,6 +1767,7 @@ async function clearMessagesCreateRows() {
     card.querySelector('[data-field="sleep_minutes"]').value = '0';
     card.querySelector('[data-field="wc"]').checked = false;
     card.querySelector('[data-field="activities_txt"]').value = '';
+    card.querySelector('[data-field="observations_txt"]').value = '';
     card.querySelector('[data-field="comments"]').value = '';
   });
   showToast('Η φόρμα καθαρίστηκε.');
@@ -1901,6 +1905,7 @@ function collectMessagesCreateRows() {
     sleep_minutes: card.querySelector('[data-field="sleep_minutes"]').value,
     wc: card.querySelector('[data-field="wc"]').checked ? 1 : 0,
     activities_txt: card.querySelector('[data-field="activities_txt"]').value,
+    observations_txt: card.querySelector('[data-field="observations_txt"]').value,
     comments: card.querySelector('[data-field="comments"]').value
   }));
 }

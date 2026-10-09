@@ -54,11 +54,12 @@ $ratingColors = [0=>'#9ca3af', 1=>'#e74c3c', 2=>'#e8a020', 3=>'#3498db', 4=>'#27
             <th style="width:70px;text-align:center;">Ύπνος</th>
             <th style="width:50px;text-align:center;">WC</th>
             <th>Δραστηριότητες</th>
+            <th>Παρατηρήσεις</th>
             <th>Σχόλια</th>
           </tr>
         </thead>
         <tbody id="par-tbody">
-          <tr><td colspan="9" class="text-center text-muted">Φόρτωση...</td></tr>
+          <tr><td colspan="10" class="text-center text-muted">Φόρτωση...</td></tr>
         </tbody>
       </table>
     </div>
@@ -82,7 +83,7 @@ function loadParentMessages() {
   var area = document.getElementById('par-tables-area');
   if (mainTable) mainTable.style.display = '';
   if (area) area.querySelectorAll('.child-mini-table').forEach(function(el){ el.remove(); });
-  document.getElementById('par-tbody').innerHTML = '<tr><td colspan="9" class="text-center text-muted">Φόρτωση...</td></tr>';
+  document.getElementById('par-tbody').innerHTML = '<tr><td colspan="10" class="text-center text-muted">Φόρτωση...</td></tr>';
   apiPost('/api/parent/messages', {child_id:cid, from:from, to:to}, function(err,resp) {
     if (err||!resp||!resp.rows) { showToast('Σφάλμα.','danger'); return; }
     document.getElementById('par-count').textContent = resp.rows.length + ' αναφορές';
@@ -94,7 +95,7 @@ function loadParentMessages() {
         hint = ' Τελευταία αναφορά: <strong>' + fmt + '</strong>.';
       }
       document.getElementById('par-tbody').innerHTML =
-        '<tr><td colspan="9" class="text-center text-muted" style="padding:16px;">Δεν υπάρχουν αναφορές για αυτό το διάστημα.' + hint + '</td></tr>';
+        '<tr><td colspan="10" class="text-center text-muted" style="padding:16px;">Δεν υπάρχουν αναφορές για αυτό το διάστημα.' + hint + '</td></tr>';
       return;
     }
     var tbody = '';
@@ -107,8 +108,9 @@ function loadParentMessages() {
         ratingTd(r.breakfast) + ratingTd(r.lunch) + ratingTd(r.mood) +
         '<td class="text-center">' + (r.sleep_minutes > 0 ? r.sleep_minutes+' λ.' : '-') + '</td>' +
         '<td class="text-center">' + (r.wc ? '✅' : '☐') + '</td>' +
-        '<td style="font-size:11px;">' + esc(r.activities||'') + '</td>' +
-        '<td style="font-size:11px;">' + esc(r.comments||'') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.activities||'-') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.observations||'-') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.comments||'-') + '</td>' +
       '</tr>';
     });
     document.getElementById('par-tbody').innerHTML = tbody;
@@ -145,7 +147,7 @@ function filterToday() {
   }
 
   // Multi-child: fetch all and combine in table.
-  document.getElementById('par-tbody').innerHTML = '<tr><td colspan="9" class="text-center text-muted">Φόρτωση...</td></tr>';
+  document.getElementById('par-tbody').innerHTML = '<tr><td colspan="10" class="text-center text-muted">Φόρτωση...</td></tr>';
   var results = {};
   var pending = allOptions.length;
 
@@ -174,7 +176,7 @@ function renderAllChildrenToday(allOptions, results, today) {
     '<th style="width:110px;text-align:center;">Διάθεση</th>' +
     '<th style="width:70px;text-align:center;">Ύπνος</th>' +
     '<th style="width:50px;text-align:center;">WC</th>' +
-    '<th>Δραστηριότητες</th><th>Σχόλια</th>' +
+    '<th>Δραστηριότητες</th><th>Παρατηρήσεις</th><th>Σχόλια</th>' +
   '</tr></thead>';
 
   var total = 0;
@@ -182,7 +184,7 @@ function renderAllChildrenToday(allOptions, results, today) {
     var data = results[opt.value];
     var tbody = '';
     if (!data.rows.length) {
-      tbody = '<tr><td colspan="9" class="text-center text-muted" style="padding:10px;">Δεν υπάρχει αναφορά σήμερα.</td></tr>';
+      tbody = '<tr><td colspan="10" class="text-center text-muted" style="padding:10px;">Δεν υπάρχει αναφορά σήμερα.</td></tr>';
     } else {
       data.rows.forEach(function(r) {
         tbody += '<tr style="background:#f0fdf4;">' +
@@ -191,8 +193,9 @@ function renderAllChildrenToday(allOptions, results, today) {
           ratingTd(r.breakfast) + ratingTd(r.lunch) + ratingTd(r.mood) +
           '<td class="text-center">' + (r.sleep_minutes > 0 ? r.sleep_minutes+' λ.' : '-') + '</td>' +
           '<td class="text-center">' + (r.wc ? '✅' : '☐') + '</td>' +
-          '<td style="font-size:11px;">' + esc(r.activities||'') + '</td>' +
-          '<td style="font-size:11px;">' + esc(r.comments||'') + '</td>' +
+          '<td style="font-size:11px;">' + esc(r.activities||'-') + '</td>' +
+          '<td style="font-size:11px;">' + esc(r.observations||'-') + '</td>' +
+          '<td style="font-size:11px;">' + esc(r.comments||'-') + '</td>' +
         '</tr>';
         total++;
       });

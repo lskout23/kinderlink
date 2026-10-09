@@ -226,29 +226,95 @@ var photoDupDecisionResolver = null;
 var photoDupRememberedAction = '';
 var photoActionBusy = false;
 var photoGroupUploadOperation = null;
+var photoSingleUploadOperation = null;
 var sendEmailConfirmPending = false;
+var messageRequestBusy = false;
+// Attendance comes only from the database, scoped to the loaded group/day.
+var attendanceReady = false;
+var attendancePending = false;
+// Independent load tracking.
+var childrenLoadVersion = 0;
+var photoListVersion = 0;
+var loadedGroup = '';
+var loadedDate = '';
 
-// Snapshot the visible photo scope before yielding to a dialog.
-function capturePhotoScope() {
+function captureComposeScope() {
   return {
     group: document.getElementById('sel-group').value,
     date: document.getElementById('sel-date').value,
-    child: document.getElementById('photo-child').value,
-    allDates: document.getElementById('photo-all-dates').checked,
-    hidden: document.getElementById('photo-show-hidden').checked,
     version: childrenLoadVersion
   };
 }
 
-function photoScopeMatches(scope) {
-  var current = capturePhotoScope();
-  return Object.keys(current).every(function(key) { return current[key] === scope[key]; });
+function composeScopeMatches(scope) {
+  var current = captureComposeScope();
+  return !!loadedGroup && !!loadedDate && loadedGroup === current.group && loadedDate === current.date &&
+    (!scope || (scope.group === current.group && scope.date === current.date && scope.version === current.version));
 }
 
-// Keep one photo action in flight through all confirmations AND its request.
+function composeActionBusy() {
+  return photoActionBusy || photoGroupUploadOperation || photoSingleUploadOperation ||
+    sendEmailConfirmPending || messageRequestBusy || attendancePending;
+}
+
+function updateComposeControls() {
+  var disabled = !!composeActionBusy() || !composeScopeMatches() || !childrenData.length;
+  ['btn-save-all', 'btn-send-email', 'btn-clear-all', 'btn-preview-email'].forEach(function(id) {
+    document.getElementById(id).disabled = disabled;
+  });
+  // Sending relies on saved absences, so it needs a confirmed attendance state.
+  if (!attendanceReady) document.getElementById('btn-send-email').disabled = true;
+  document.querySelectorAll('.absent-today-toggle').forEach(function(el) { el.disabled = disabled || !attendanceReady; });
+}
+
+function invalidateComposeScope() {
+  childrenLoadVersion++;
+  photoListVersion++;
+  loadedGroup = loadedDate = '';
+  childrenData = [];
+  attendanceReady = false;
+  document.getElementById('attendance-notice').textContent = '';
+  window.groupTargetSelectedMap = {};
+  loadPhotoChildren([]);
+  document.getElementById('photo-child').value = '';
+  document.getElementById('children-area').textContent = 'Πατήστε Φόρτωση για το επιλεγμένο τμήμα και την ημερομηνία.';
+  closeEmailPreview();
+  updateComposeControls();
+}
+
+// Snapshot the visible photo scope before yielding to a dialog or request.
+function capturePhotoScope() {
+  var scope = captureComposeScope();
+  scope.child = document.getElementById('photo-child').value;
+  scope.allDates = document.getElementById('photo-all-dates').checked;
+  scope.hidden = document.getElementById('photo-show-hidden').checked;
+  scope.photoVersion = photoListVersion;
+  return scope;
+}
+
+function photoScopeMatches(scope) {
+  var current = capturePhotoScope();
+  return composeScopeMatches(scope) && Object.keys(current).every(function(key) { return current[key] === scope[key]; });
+}
+
+// Resolve only after the API callback; callers retain their lock through requests.
+function composePost(url, data) {
+  return new Promise(function(resolve, reject) {
+    apiPost(url, data, function(err, resp) {
+      if (err || !resp || resp.error || resp.success === false) {
+        reject(new Error(resp && resp.error ? resp.error : 'Δεν επιβεβαιώθηκε η ολοκλήρωση. Ελέγξτε τα δεδομένα πριν δοκιμάσετε ξανά.'));
+        return;
+      }
+      resolve(resp);
+    });
+  });
+}
+
+// Keep one photo action in flight through all confirmations AND its callback.
 async function confirmPhotoAction(scope, steps, url, data, onResult) {
-  if (photoActionBusy || photoGroupUploadOperation) return;
+  if (composeActionBusy() || !photoScopeMatches(scope)) return;
   photoActionBusy = true;
+  updateComposeControls();
   try {
     for (var i = 0; i < steps.length; i++) {
       if (!await appConfirm(steps[i].message, steps[i]) || !photoScopeMatches(scope)) return;
@@ -261,53 +327,38 @@ async function confirmPhotoAction(scope, steps, url, data, onResult) {
         } catch (error) { reject(error); }
       });
     });
+  } catch (error) {
+    showToast('Δεν επιβεβαιώθηκε η ενέργεια φωτογραφιών. Ελέγξτε τη λίστα φωτογραφιών.', 'danger');
   } finally {
     photoActionBusy = false;
+    updateComposeControls();
   }
 }
 
 var ratingLabels = {0:'-',1:'Καθόλου',2:'Μέτρια',3:'Καλά',4:'Πολύ Καλά'};
 var ratingColors  = {0:'',1:'#e74c3c',2:'#e8a020',3:'#3498db',4:'#27ae60'};
 
-// Attendance comes only from the database, scoped to the loaded child/day.
-var attendanceReady = false;
-var attendancePending = false;
-var messageBusy = false;
-var loadedGroup = '';
-var loadedDate = '';
-var childrenLoadVersion = 0;
-
-function composeScopeMatches() {
-  return loadedGroup && loadedGroup === document.getElementById('sel-group').value &&
-    loadedDate === document.getElementById('sel-date').value;
-}
-
-function updateComposeControls() {
-  var busy = attendancePending || messageBusy;
-  var loaded = composeScopeMatches() && childrenData.length > 0;
-  ['sel-group', 'sel-date', 'btn-load-children'].forEach(function(id) { document.getElementById(id).disabled = busy; });
-  ['btn-save-all', 'btn-clear-all', 'btn-preview-email'].forEach(function(id) { document.getElementById(id).disabled = busy || !loaded; });
-  document.getElementById('btn-send-email').disabled = busy || !loaded || !attendanceReady;
-  document.querySelectorAll('.absent-today-toggle').forEach(function(el) { el.disabled = busy || !loaded || !attendanceReady; });
-}
-
+// -- 'Απών' (database-backed, per child/day; independent of message save) --
 function toggleAbsentToday(el, childId) {
   var child = childrenData.find(function(r) { return String(r.id) === String(childId); });
   if (!child) return;
   var previous = child.is_absent === true;
   var absent = el.checked;
-  if (!attendanceReady || attendancePending || messageBusy || !composeScopeMatches()) {
+  if (!attendanceReady || composeActionBusy() || !composeScopeMatches()) {
     el.checked = previous;
-    showToast('Φορτώστε το τμήμα και περιμένετε να ολοκληρωθεί η αποθήκευση.', 'warning');
+    showToast('Φορτώστε το τμήμα και περιμένετε να ολοκληρωθεί η τρέχουσα ενέργεια.', 'warning');
     return;
   }
-  var gid = loadedGroup, date = loadedDate;
+  var scope = captureComposeScope();
+  var gid = scope.group, date = scope.date;
   attendancePending = true;
   updateComposeControls();
   var notice = document.getElementById('attendance-notice');
   notice.textContent = 'Αποθήκευση απουσίας...';
   apiPost('/api/messages/attendance', {group_id: gid, child_id: childId, date: date, is_absent: absent ? '1' : '0', _token: CSRF}, function(err, resp) {
     attendancePending = false;
+    // Group/date changed meanwhile: the next Φόρτωση reads the saved state from the database.
+    if (!composeScopeMatches(scope)) { updateComposeControls(); return; }
     if (err || !resp || resp.success !== true || resp.date !== date || String(resp.child_id) !== String(childId) || resp.is_absent !== absent) {
       el.checked = previous;
       // A lost response may hide a successful write: force a reload before send.
@@ -348,23 +399,16 @@ function updateAbsentTodayBadge() {
   }
 }
 
-function invalidateComposeScope() {
-  childrenLoadVersion++;
-  loadedGroup = loadedDate = '';
-  childrenData = [];
-  attendanceReady = false;
-  document.getElementById('children-area').textContent = 'Πατήστε Φόρτωση για το επιλεγμένο τμήμα και την ημερομηνία.';
-  document.getElementById('attendance-notice').textContent = '';
-  updateComposeControls();
-}
-
 function loadChildren() {
-  if (attendancePending || messageBusy) return;
+  // An in-flight absence save could be read back stale; wait for it.
+  if (attendancePending) { showToast('Περιμένετε να ολοκληρωθεί η αποθήκευση απουσίας.', 'warning'); return; }
   var gid  = document.getElementById('sel-group').value;
   var date = document.getElementById('sel-date').value;
-  if (!gid) { showToast('Επιλέξτε τμήμα.','warning'); return; }
   invalidateComposeScope();
+  if (!gid) { showToast('Επιλέξτε τμήμα.','warning'); return; }
+  if (!date) { showToast('Επιλέξτε ημερομηνία.','warning'); return; }
   var version = childrenLoadVersion;
+
   document.getElementById('children-area').innerHTML = '<div class="text-muted text-center" style="padding:20px;">Φόρτωση...</div>';
   document.getElementById('btn-save-all').disabled   = true;
   document.getElementById('btn-send-email').disabled = true;
@@ -372,7 +416,7 @@ function loadChildren() {
 
   apiPost('/api/messages/list-by-group', {group_id:gid, date:date, _token:CSRF}, function(err, resp) {
     if (version !== childrenLoadVersion || gid !== document.getElementById('sel-group').value || date !== document.getElementById('sel-date').value) return;
-    if (err||!resp||!resp.rows) {
+    if (err||!resp||resp.error||!Array.isArray(resp.rows)) {
       document.getElementById('children-area').textContent = (resp && resp.error) || 'Σφάλμα φόρτωσης.';
       showToast((resp && resp.error) || 'Σφάλμα φόρτωσης.','danger');
       return;
@@ -522,6 +566,7 @@ function selectAllGroupTargetChildren(checked) {
 }
 
 document.getElementById('photo-child').addEventListener('change', function() {
+  photoListVersion++;
   var childId = this.value;
   if (!childId) {
     document.getElementById('photo-list').innerHTML = 'Επιλέξτε παιδί για να δείτε/ανεβάσετε φωτογραφίες.';
@@ -531,12 +576,14 @@ document.getElementById('photo-child').addEventListener('change', function() {
 });
 
 function loadPhotoList(preserveStatusMessages) {
+  photoListVersion++;
+  var scope = capturePhotoScope();
   var gid = document.getElementById('sel-group').value;
   var date = document.getElementById('sel-date').value;
   var childId = document.getElementById('photo-child').value;
   var includeHidden = IS_ADMIN && document.getElementById('photo-show-hidden') && document.getElementById('photo-show-hidden').checked ? 1 : 0;
   var allDates = document.getElementById('photo-all-dates') && document.getElementById('photo-all-dates').checked ? 1 : 0;
-  if (!gid || !childId) {
+  if (!composeScopeMatches() || !gid || !childId) {
     return;
   }
 
@@ -546,6 +593,7 @@ function loadPhotoList(preserveStatusMessages) {
   }
   document.getElementById('photo-list').innerHTML = '<span class="text-muted">Φόρτωση φωτογραφιών...</span>';
   apiPost('/api/messages/photos/list', {group_id: gid, child_id: childId, date: date, include_hidden: includeHidden, all_dates: allDates, _token: CSRF}, function(err, resp) {
+    if (!photoScopeMatches(scope)) return;
     if (err || !resp) {
       document.getElementById('photo-list').innerHTML = '<span class="alert alert-danger">Σφάλμα φόρτωσης φωτογραφιών.</span>';
       return;
@@ -643,19 +691,42 @@ function setUploadBtnLoading(loading) {
   }
 }
 
-function sendPhotosUpload(forceOverwrite, skipDuplicates) {
-  if (photoGroupUploadOperation || photoActionBusy) return;
-  var gid = document.getElementById('sel-group').value;
-  var date = document.getElementById('sel-date').value;
-  var childId = document.getElementById('photo-child').value;
+function sendPhotosUpload(forceOverwrite, skipDuplicates, operation) {
   var input = document.getElementById('photo-files');
-
-  if (!gid) { showToast('Επιλέξτε τμήμα.','warning'); return; }
-  if (!childId) { showToast('Επιλέξτε παιδί.','warning'); return; }
-  if (!input.files || !input.files.length) { showToast('Επιλέξτε τουλάχιστον μία εικόνα.','warning'); return; }
+  if (operation) {
+    if (photoSingleUploadOperation !== operation || operation.requestPending) return;
+  } else {
+    if (composeActionBusy() || document.getElementById('btn-photo-upload-main').disabled) return;
+    if (!composeScopeMatches()) { showToast('Φορτώστε πρώτα το τμήμα και την ημερομηνία.','warning'); return; }
+    if (!document.getElementById('photo-child').value) { showToast('Επιλέξτε παιδί.','warning'); return; }
+    if (!input.files || !input.files.length) { showToast('Επιλέξτε τουλάχιστον μία εικόνα.','warning'); return; }
+    operation = {
+      scope: capturePhotoScope(), files: Array.from(input.files),
+      mode: document.getElementById('photo-upload-mode').value,
+      loading: false, requestPending: false
+    };
+    photoSingleUploadOperation = operation;
+    updateComposeControls();
+  }
+  var gid = operation.scope.group, date = operation.scope.date, childId = operation.scope.child;
+  function scopeMatches() {
+    return photoScopeMatches(operation.scope) && operation.mode === document.getElementById('photo-upload-mode').value &&
+      input.files.length === operation.files.length &&
+      operation.files.every(function(file, index) { return input.files[index] === file; });
+  }
+  function finishUpload() {
+    if (photoSingleUploadOperation !== operation) return;
+    photoSingleUploadOperation = null;
+    if (operation.loading) setUploadBtnLoading(false);
+    updateComposeControls();
+  }
+  if (!scopeMatches()) { finishUpload(); return; }
 
   hidePhotoUploadFeedback();
-  setUploadBtnLoading(true);
+  if (!operation.loading) {
+    setUploadBtnLoading(true);
+    operation.loading = true;
+  }
 
   var formData = new FormData();
   formData.append('group_id', gid);
@@ -668,9 +739,7 @@ function sendPhotosUpload(forceOverwrite, skipDuplicates) {
   if (skipDuplicates) {
     formData.append('skip_duplicates', '1');
   }
-  for (var i = 0; i < input.files.length; i++) {
-    formData.append('photos[]', input.files[i]);
-  }
+  operation.files.forEach(function(file) { formData.append('photos[]', file); });
 
   var xhr = new XMLHttpRequest();
   xhr.open('POST', APP_BASE + '/api/messages/photos/upload', true);
@@ -679,26 +748,30 @@ function sendPhotosUpload(forceOverwrite, skipDuplicates) {
     var resp = null;
     try { resp = JSON.parse(xhr.responseText); } catch (e) {}
 
-    setUploadBtnLoading(false);
+    operation.requestPending = false;
+    if (!scopeMatches()) { finishUpload(); return; }
     if (resp && resp.error_code === 'PHOTO_NAME_EXISTS') {
       var dupEntries = (resp.duplicates_details || resp.duplicates || []).slice(0, 6);
       openPhotoDupDecisionModal({
         summary: 'Εντοπίστηκαν διπλότυπα: ' + parseInt((resp.duplicates || []).length || dupEntries.length || 0, 10),
         details: dupEntries
       }, function(action) {
+        if (!scopeMatches()) { finishUpload(); return; }
         if (action === 'replace') {
-          sendPhotosUpload(true, false);
+          sendPhotosUpload(true, false, operation);
           return;
         }
         if (action === 'skip') {
-          sendPhotosUpload(false, true);
+          sendPhotosUpload(false, true, operation);
           return;
         }
+        finishUpload();
         showToast('Η μεταφόρτωση ακυρώθηκε.', 'info');
       });
       return;
     }
 
+    finishUpload();
     if (resp && resp.error_code === 'PHOTO_STORAGE_FAILED') {
       showPhotoStorageAlert(resp.error + ' Επιλέξτε υπάρχουσες φωτογραφίες και κάντε οριστική διαγραφή για να ελευθερωθεί χώρος.');
       showToast(resp.error, 'danger');
@@ -738,18 +811,20 @@ function sendPhotosUpload(forceOverwrite, skipDuplicates) {
     input.value = '';
     loadPhotoList(!!(resp.errors && resp.errors.length));
   };
-  xhr.onerror = function() { showToast('Σφάλμα δικτύου στη μεταφόρτωση.','danger'); };
-  xhr.send(formData);
+  xhr.onerror = function() { finishUpload(); showToast('Σφάλμα δικτύου στη μεταφόρτωση.','danger'); };
+  xhr.onabort = xhr.ontimeout = xhr.onerror;
+  operation.requestPending = true;
+  try { xhr.send(formData); } catch (error) { xhr.onerror(); }
 }
 
 async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, skipDuplicates, suppressInitialConfirm, operation) {
   var input = document.getElementById('photo-files');
   if (operation) {
     // Only the duplicate-decision callback may reuse the active operation.
-    if (photoGroupUploadOperation !== operation) return;
+    if (photoGroupUploadOperation !== operation || operation.requestPending) return;
   } else {
-    if (photoGroupUploadOperation || photoActionBusy || document.getElementById('btn-photo-upload-main').disabled) return;
-    if (!document.getElementById('sel-group').value) { showToast('Επιλέξτε τμήμα.','warning'); return; }
+    if (composeActionBusy() || document.getElementById('btn-photo-upload-main').disabled) return;
+    if (!composeScopeMatches()) { showToast('Φορτώστε πρώτα το τμήμα και την ημερομηνία.','warning'); return; }
     if (!input.files || !input.files.length) { showToast('Επιλέξτε τουλάχιστον μία εικόνα.','warning'); return; }
     operation = {
       scope: capturePhotoScope(),
@@ -758,9 +833,11 @@ async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, 
       selectedIds: Array.isArray(selectedIds) ? selectedIds.slice() : [],
       targets: JSON.stringify(getSelectedGroupChildIds()),
       mode: document.getElementById('photo-upload-mode').value,
-      loading: false
+      loading: false,
+      requestPending: false
     };
     photoGroupUploadOperation = operation;
+    updateComposeControls();
   }
   var gid = operation.scope.group, date = operation.scope.date;
   selectedOnly = operation.selectedOnly;
@@ -776,6 +853,7 @@ async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, 
     if (photoGroupUploadOperation !== operation) return;
     photoGroupUploadOperation = null;
     if (operation.loading) setUploadBtnLoading(false);
+    updateComposeControls();
   }
   if (!scopeMatches()) { finishUpload(); return; }
 
@@ -797,6 +875,7 @@ async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, 
       }
     } catch (error) {
       finishUpload();
+      showToast('Δεν επιβεβαιώθηκε η μεταφόρτωση.', 'danger');
       return;
     }
   }
@@ -831,6 +910,7 @@ async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, 
     var resp = null;
     try { resp = JSON.parse(xhr.responseText); } catch (e) {}
 
+    operation.requestPending = false;
     if (!scopeMatches()) { finishUpload(); return; }
     if (resp && resp.error_code === 'PHOTO_NAME_EXISTS_GROUP') {
       var dupList = (resp.duplicates_details || []).slice(0, 12);
@@ -901,7 +981,8 @@ async function sendPhotosUploadGroup(forceOverwrite, selectedOnly, selectedIds, 
     }
   };
   xhr.onerror = function() { finishUpload(); showToast('Σφάλμα δικτύου στη μεταφόρτωση.','danger'); };
-  xhr.onabort = xhr.ontimeout = function() { finishUpload(); };
+  xhr.onabort = xhr.ontimeout = xhr.onerror;
+  operation.requestPending = true;
   try { xhr.send(formData); } catch (error) { xhr.onerror(); }
 }
 
@@ -1249,7 +1330,7 @@ function renderChildrenTable(rows) {
     : absentCount + ' απόντα στην επιλεγμένη ημερομηνία (παράλειψη email)';
   var badgeHtml = '<div id="absent-today-badge" style="display:' + (absentCount > 0 ? 'inline-flex' : 'none') + ';align-items:center;justify-content:center;background:#fff7ed;border:1px solid #fed7aa;color:#9a5b00;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700;line-height:1.2;letter-spacing:0.2px;margin-bottom:10px;">' + (absentCount > 0 ? absentLabel : '') + '</div>';
 
-  var html = badgeHtml + '<table class="data-table msg-table" style="min-width:980px;">';
+  var html = badgeHtml + '<table class="data-table msg-table" style="min-width:1140px;">';
   html += '<thead><tr>' +
     '<th>Παιδί</th>' +
     '<th style="width:110px;">Πρωινό</th>' +
@@ -1259,6 +1340,7 @@ function renderChildrenTable(rows) {
     '<th style="width:50px;">WC</th>' +
     '<th style="width:100px;">Απών</th>' +
     '<th>Δραστηριότητες</th>' +
+    '<th>Παρατηρήσεις</th>' +
     '<th>Σχόλια</th>' +
     '<th style="width:90px;">Email</th>' +
   '</tr></thead><tbody>';
@@ -1277,6 +1359,7 @@ function renderChildrenTable(rows) {
       '<td style="text-align:center;"><input type="checkbox" class="msg-cb" data-idx="'+idx+'" data-field="wc"'+(r.wc?'checked':'')+'/></td>' +
       '<td style="text-align:center;"><label style="display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:11px;"><input type="checkbox" class="absent-today-toggle" data-child-id="'+r.id+'" '+(absent ? 'checked' : '')+' onchange="toggleAbsentToday(this, '+r.id+')"> Απών</label></td>' +
       '<td><textarea rows="2" style="width:100%;min-width:160px;font-size:11px;" class="msg-input" data-idx="'+idx+'" data-field="activities_txt">'+esc(r.activities_txt||'')+'</textarea></td>' +
+      '<td><textarea rows="2" style="width:100%;min-width:160px;font-size:11px;" class="msg-input" data-idx="'+idx+'" data-field="observations_txt">'+esc(r.observations_txt||'')+'</textarea></td>' +
       '<td><textarea rows="2" style="width:100%;min-width:120px;font-size:11px;" class="msg-input" data-idx="'+idx+'" data-field="comments">'+esc(r.comments||'')+'</textarea></td>' +
       '<td class="attendance-email-status" style="text-align:center;">'+statusLabel+'</td>' +
     '</tr>';
@@ -1299,7 +1382,7 @@ function attendanceEmailStatus(status, absent) {
 
 function ratingCell(idx, field, current) {
   current = current || 0;
-  var html = '<td class="rating-cell" data-idx="'+idx+'" data-field="'+field+'">';
+  var html = '<td class="rating-cell" style="white-space:nowrap;" data-idx="'+idx+'" data-field="'+field+'">';
   for (var v=1; v<=4; v++) {
     var active = current == v ? 'active' : '';
     html += '<button type="button" class="rating-btn rating-'+v+' '+active+'" onclick="setRating(this,'+idx+',\''+field+'\','+v+')">'+v+'</button>';
@@ -1334,56 +1417,47 @@ function collectRows() {
   return rows;
 }
 
-function saveAll() {
-  if (!composeScopeMatches() || attendancePending || messageBusy) return;
+async function saveAll() {
+  if (composeActionBusy() || !composeScopeMatches() || !childrenData.length) return;
+  var scope = captureComposeScope();
   var gid  = document.getElementById('sel-group').value;
   var date = document.getElementById('sel-date').value;
   var rows = collectRows();
-  messageBusy = true;
+  messageRequestBusy = true;
   updateComposeControls();
-  apiPost('/api/messages/save', {group_id:gid, date:date, rows:rows, _token:CSRF}, function(err,resp) {
-    messageBusy = false;
+  try {
+    var resp = await composePost('/api/messages/save', {group_id:gid, date:date, rows:rows, _token:CSRF});
+    if (composeScopeMatches(scope)) showToast('Αποθηκεύτηκαν '+resp.saved+' εγγραφές!','success');
+  } catch (error) {
+    showToast('Σφάλμα αποθήκευσης. ' + error.message,'danger');
+  } finally {
+    messageRequestBusy = false;
     updateComposeControls();
-    if (err||!resp||resp.error) { showToast('Σφάλμα αποθήκευσης.','danger'); return; }
-    showToast('Αποθηκεύτηκαν '+resp.saved+' εγγραφές!','success');
-  });
+  }
 }
 
 async function sendEmails() {
-  if (!composeScopeMatches() || !attendanceReady || attendancePending || messageBusy || sendEmailConfirmPending) return;
-  var gid = loadedGroup, date = loadedDate;
-  var version = childrenLoadVersion;
+  if (composeActionBusy() || !composeScopeMatches() || !childrenData.length || !attendanceReady) return;
+  var scope = captureComposeScope();
+  var gid = scope.group, date = scope.date;
   var rows = collectRows();
+  var reload = false;
   sendEmailConfirmPending = true;
-  try {
-    if (!await appConfirm('Να αποσταλούν email για ' + date.split('-').reverse().join('/') + '; Τα παιδιά που έχουν αποθηκευμένη απουσία στη βάση θα παραλειφθούν.', {
-      title: 'Αποστολή ημερήσιων ενημερώσεων', confirmLabel: 'Αποστολή Email', cancelLabel: 'Ακύρωση'
-    })) return;
-    if (!composeScopeMatches() || loadedGroup !== gid || loadedDate !== date || version !== childrenLoadVersion || !attendanceReady || attendancePending || messageBusy) return;
-  } finally {
-    sendEmailConfirmPending = false;
-  }
-  messageBusy = true;
   updateComposeControls();
-
-  // Auto-save first (absent children's ratings are still saved normally)
-  apiPost('/api/messages/save', {group_id:gid, date:date, rows:rows, _token:CSRF}, function(err, saved) {
-    if (err || !saved || saved.success !== true) {
-      messageBusy = false;
-      updateComposeControls();
-      showToast('Σφάλμα αποθήκευσης. Δοκιμάστε ξανά.','danger');
-      return;
-    }
-    apiPost('/api/messages/send-emails', {group_id:gid, date:date, _token:CSRF}, function(err2, resp) {
-      messageBusy = false;
-      updateComposeControls();
-      if (err2||!resp||resp.error) {
-        showToast((resp && resp.error) ? resp.error : 'Σφάλμα αποστολής.','danger');
-        return;
-      }
+  try {
+    var groupName = document.getElementById('sel-group').selectedOptions[0].text;
+    if (!await appConfirm(groupName + ' · ' + date.split('-').reverse().join('/') + '\n\nΝα αποσταλούν email για αυτό το τμήμα / ημερομηνία; Τα παιδιά που έχουν αποθηκευμένη απουσία στη βάση θα παραλειφθούν.', {
+      title: 'Αποστολή ημερήσιων ενημερώσεων', confirmLabel: 'Αποστολή Email', cancelLabel: 'Ακύρωση'
+    }) || !composeScopeMatches(scope) || !attendanceReady) return;
+    messageRequestBusy = true;
+    // Auto-save first (absent children's ratings are still saved normally).
+    await composePost('/api/messages/save', {group_id:gid, date:date, rows:rows, _token:CSRF});
+    if (!composeScopeMatches(scope)) return;
+    var resp = await composePost('/api/messages/send-emails', {group_id:gid, date:date, _token:CSRF});
+    if (!composeScopeMatches(scope)) return;
+    reload = true;
       if ((resp.processed || 0) === 0) {
         showToast('Δεν υπάρχουν διαθέσιμα μηνύματα προς αποστολή στη συγκεκριμένη ημερομηνία/τμήμα.','warning');
-        loadChildren();
         return;
       }
       if ((resp.sent || 0) === 0 && (resp.failed || 0) === 0 && (resp.skipped || 0) > 0) {
@@ -1391,7 +1465,6 @@ async function sendEmails() {
           ? 'Το παιδί έχει αποθηκευμένη απουσία για την επιλεγμένη ημερομηνία, οπότε δεν στάλθηκε email.'
           : 'Όλα τα παιδιά έχουν αποθηκευμένη απουσία για την επιλεγμένη ημερομηνία, οπότε δεν στάλθηκε κανένα email ('+resp.skipped+').';
         showToast(absentMsg,'info');
-        loadChildren();
         return;
       }
       var msg = 'Email: Απεστάλησαν '+resp.sent+
@@ -1400,25 +1473,33 @@ async function sendEmails() {
         (resp.mode === 'virtual' ? ' (εικονική αποστολή)' : '');
       if (resp.error_detail) msg += ' | Λόγος: ' + resp.error_detail;
       showToast(msg, resp.failed > 0 ? 'warning' : 'success');
-      loadChildren();
-    });
-  });
+  } catch (error) {
+    showToast('Σφάλμα αποθήκευσης / αποστολής. ' + error.message, 'danger');
+  } finally {
+    sendEmailConfirmPending = false;
+    messageRequestBusy = false;
+    updateComposeControls();
+    if (reload && composeScopeMatches(scope)) loadChildren();
+  }
 }
 
 function bulkApply(panel, mode) {
   var cbClass = panel === 'both' ? 'act-both-cb' : 'act-email-cb';
+  var targetField = panel === 'both' ? 'activities_txt' : 'observations_txt';
   var selected = [];
   document.querySelectorAll('.'+cbClass+':checked').forEach(function(cb) {
     selected.push(cb.value);
   });
   if (!selected.length) { showToast('Επιλέξτε δραστηριότητες πρώτα.','warning'); return; }
 
-  document.querySelectorAll('.msg-input[data-field="activities_txt"]').forEach(function(ta) {
+  document.querySelectorAll('.msg-input[data-field="'+targetField+'"]').forEach(function(ta) {
     if (mode === 'replace') {
       ta.value = selected.join(', ');
     } else {
-      var existing = ta.value ? ta.value.split(',').map(function(s){ return s.trim().toLowerCase(); }) : [];
-      var toAdd = selected.filter(function(s){ return existing.indexOf(s.toLowerCase()) === -1; });
+      // Items may contain commas, so match whole items between ", " separators.
+      var listKey = function(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim(); };
+      var existing = ', ' + listKey(ta.value) + ', ';
+      var toAdd = selected.filter(function(s){ return existing.indexOf(', ' + listKey(s) + ', ') === -1; });
       if (toAdd.length) {
         ta.value = ta.value ? ta.value + ', ' + toAdd.join(', ') : toAdd.join(', ');
       }
@@ -1427,26 +1508,47 @@ function bulkApply(panel, mode) {
 }
 
 async function clearAll() {
-  if (!composeScopeMatches() || attendancePending || messageBusy) return;
-  var group = document.getElementById('sel-group');
-  var gid = loadedGroup, date = loadedDate;
-  var context = group.options[group.selectedIndex].text + ' · ' + date.split('-').reverse().join('/');
-  if (!await appConfirm(context + '\n\nΘα καθαριστούν οι βαθμολογίες, τα πεδία και οι επιλογές της φόρμας. Οι μη αποθηκευμένες αλλαγές θα χαθούν.\n\nΤα αποθηκευμένα μηνύματα και οι απουσίες διατηρούνται. Για αναίρεση απουσίας αποεπιλέξτε το «Απών».\n\nΓια τις φωτογραφίες θα ακολουθήσει ξεχωριστή επιβεβαίωση.', {
-    title: 'Καθαρισμός φόρμας;',
-    confirmLabel: 'Καθαρισμός φόρμας',
-    cancelLabel: 'Ακύρωση'
-  })) return;
-  if (!composeScopeMatches() || loadedGroup !== gid || loadedDate !== date || attendancePending || messageBusy) return;
-  await resetMessageFormFields();
+  if (composeActionBusy() || !composeScopeMatches() || !childrenData.length) return;
+  var scope = captureComposeScope();
+  var gid = scope.group, date = scope.date;
+  var groupName = document.getElementById('sel-group').selectedOptions[0].text;
+  var context = groupName + ' · ' + date.split('-').reverse().join('/');
+  // Own the photo lock from the first dialog until the purge callback settles.
+  photoActionBusy = true;
+  updateComposeControls();
+  try {
+    if (!await appConfirm(context + '\n\nΘα καθαριστούν οι βαθμολογίες, τα πεδία και οι επιλογές της φόρμας. Οι μη αποθηκευμένες αλλαγές θα χαθούν.\n\nΤα αποθηκευμένα μηνύματα και οι απουσίες διατηρούνται. Για αναίρεση απουσίας αποεπιλέξτε το «Απών».\n\nΓια τις φωτογραφίες θα ακολουθήσει ξεχωριστή επιβεβαίωση.', {
+      title: 'Καθαρισμός φόρμας;', confirmLabel: 'Καθαρισμός φόρμας', cancelLabel: 'Ακύρωση'
+    }) || !composeScopeMatches(scope)) return;
+
+    resetMessageFormFields();
+
+    var confirmed = await appConfirm(context + '\n\nΤα πεδία καθάρισαν. Να διαγραφούν οριστικά ΟΛΕΣ οι φωτογραφίες του τμήματος για αυτή την ημερομηνία, μαζί με τις κρυφές, ανεξάρτητα από το επιλεγμένο παιδί;\n\nΤα links των φωτογραφιών θα σταματήσουν να λειτουργούν, ακόμη και σε email που έχουν ήδη σταλεί. Η διαγραφή δεν αναιρείται.', {
+      title: 'Οριστική διαγραφή φωτογραφιών;', confirmLabel: 'Οριστική διαγραφή', cancelLabel: 'Διατήρηση φωτογραφιών', danger: true
+    });
+    if (!composeScopeMatches(scope)) return;
+    if (!confirmed) {
+      showToast('Τα πεδία καθάρισαν. Οι φωτογραφίες διατηρήθηκαν.','info');
+      return;
+    }
+    // Always the entire selected group/day, including hidden photos. No child/all_dates filter.
+    var resp = await composePost('/api/messages/photos/purge-day', {group_id: gid, date: date, _token: CSRF});
+    if (!composeScopeMatches(scope)) return;
+    if (resp.success !== true) throw new Error('Δεν επιβεβαιώθηκε η οριστική διαγραφή φωτογραφιών.');
+    hidePhotoStorageAlert();
+    showToast('Τα πεδία καθάρισαν. Διαγράφηκαν οριστικά ' + (parseInt(resp.purged || 0, 10) || 0) + ' φωτογραφίες. Τα links τους δεν είναι πλέον διαθέσιμα.', 'success');
+    loadPhotoList();
+  } catch (error) {
+    showToast('Δεν επιβεβαιώθηκε η ολοκλήρωση του καθαρισμού. ' + error.message + ' Ελέγξτε τη λίστα φωτογραφιών.', 'warning');
+  } finally {
+    photoActionBusy = false;
+    updateComposeControls();
+  }
 }
 
-async function resetMessageFormFields() {
-  if (!composeScopeMatches() || attendancePending || messageBusy) return;
-  var gid = document.getElementById('sel-group').value;
-  var date = document.getElementById('sel-date').value;
-  var groupName = document.getElementById('sel-group').selectedOptions[0].text;
-
+function resetMessageFormFields() {
   function resetPhotoUI() {
+    photoListVersion++;
     var photoChild = document.getElementById('photo-child');
     var photoFiles = document.getElementById('photo-files');
     if (photoChild) photoChild.value = '';
@@ -1469,6 +1571,9 @@ async function resetMessageFormFields() {
   document.querySelectorAll('.msg-input[data-field="activities_txt"]').forEach(function(el) {
     el.value = '';
   });
+  document.querySelectorAll('.msg-input[data-field="observations_txt"]').forEach(function(el) {
+    el.value = '';
+  });
   document.querySelectorAll('.msg-input[data-field="comments"]').forEach(function(el) {
     el.value = '';
   });
@@ -1478,35 +1583,6 @@ async function resetMessageFormFields() {
 
   // Attendance is an independent persisted record; form reset must preserve it.
   resetPhotoUI();
-
-  if (!gid) return;
-
-  if (!await appConfirm(groupName + ' · ' + date.split('-').reverse().join('/') + '\n\nΤα πεδία καθάρισαν. Να διαγραφούν οριστικά και όλες οι φωτογραφίες του τμήματος για αυτή την ημερομηνία, μαζί με τις κρυφές;\n\nΤα links των φωτογραφιών θα σταματήσουν να λειτουργούν, ακόμη και σε email που έχουν ήδη σταλεί.', {
-    title: 'Διαγραφή φωτογραφιών;',
-    confirmLabel: 'Οριστική διαγραφή',
-    cancelLabel: 'Διατήρηση φωτογραφιών',
-    danger: true
-  })) {
-    showToast('Τα πεδία καθάρισαν. Οι φωτογραφίες διατηρήθηκαν.','info');
-    return;
-  }
-  if (!composeScopeMatches() || loadedGroup !== gid || loadedDate !== date || attendancePending || messageBusy) return;
-
-  apiPost('/api/messages/photos/purge-day', {group_id: gid, date: date, _token: CSRF}, function(err, resp) {
-    if (err || !resp) {
-      showToast('Τα πεδία καθάρισαν, αλλά δεν επιβεβαιώθηκε η οριστική διαγραφή φωτογραφιών. Ελέγξτε τη λίστα φωτογραφιών.','warning');
-      return;
-    }
-    if (resp.error || resp.success !== true) {
-      showToast('Τα πεδία καθάρισαν, αλλά δεν ολοκληρώθηκε η οριστική διαγραφή φωτογραφιών.' + (resp.error ? ' ' + resp.error : ''), 'warning');
-      return;
-    }
-    var deleted = parseInt(resp.purged || 0, 10);
-    var message = deleted > 0
-      ? 'Τα πεδία καθάρισαν και διαγράφηκαν οριστικά ' + deleted + ' φωτογραφίες. Τα links τους δεν είναι πλέον διαθέσιμα.'
-      : 'Τα πεδία καθάρισαν. Δεν υπήρχαν φωτογραφίες προς διαγραφή για το επιλεγμένο τμήμα και την ημερομηνία.';
-    showToast(message, 'success');
-  });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1587,6 +1663,7 @@ onPhotoUploadModeChange();
 
 <script>
 function openEmailPreview() {
+  if (composeActionBusy() || !composeScopeMatches()) return;
   var modal = document.getElementById('email-preview-modal');
   var sel = document.getElementById('preview-child-select');
   sel.innerHTML = '';
@@ -1606,6 +1683,8 @@ function closeEmailPreview() {
 }
 
 function loadEmailPreview() {
+  if (!composeScopeMatches()) return;
+  var scope = captureComposeScope();
   var sel = document.getElementById('preview-child-select');
   var childId = sel ? sel.value : '';
   var gid = document.getElementById('sel-group').value;
@@ -1616,6 +1695,7 @@ function loadEmailPreview() {
   body.innerHTML = '<div class="text-muted text-center" style="padding:20px;">Φόρτωση...</div>';
 
   apiPost('/api/messages/email-preview', {child_id: childId, group_id: gid, date: date}, function(err, resp) {
+    if (!composeScopeMatches(scope) || sel.value !== childId) return;
     if (!resp || resp.error) {
       body.innerHTML = '<div class="alert alert-danger">' + (resp && resp.error ? esc(resp.error) : 'Σφάλμα φόρτωσης.') + '</div>';
       return;

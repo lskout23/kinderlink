@@ -140,9 +140,12 @@ function attendanceFixture() {
   elements['sel-date'].value = '2026-09-25';
   const requests = [], toasts = [];
   const c = context(composeFile, ['attendanceEmailStatus', 'toggleAbsentToday', 'composeScopeMatches',
+    'captureComposeScope', 'composeActionBusy',
     'updateComposeControls', 'getAbsentTodayChildIds', 'updateAbsentTodayBadge'], {
     childrenData: [{ id: 42, is_absent: false, email_status: 'pending' }],
-    attendanceReady: true, attendancePending: false, messageBusy: false,
+    attendanceReady: true, attendancePending: false, messageRequestBusy: false,
+    photoActionBusy: false, photoGroupUploadOperation: null, photoSingleUploadOperation: null,
+    sendEmailConfirmPending: false, childrenLoadVersion: 1,
     loadedGroup: '7', loadedDate: '2026-09-25', CSRF: 'test-csrf',
     document: documentFor(elements, [checkbox]),
     showToast: (...args) => toasts.push(args),
@@ -204,7 +207,7 @@ for (const absent of [true, false]) test(`toggle absence: ${absent ? 'save' : 'u
 const attendanceGuards = {
   'not ready': f => { f.c.attendanceReady = false; },
   'pending attendance': f => { f.c.attendancePending = true; },
-  'message busy': f => { f.c.messageBusy = true; },
+  'message busy': f => { f.c.messageRequestBusy = true; },
   'changed group': f => { f.elements['sel-group'].value = '8'; },
   'changed date': f => { f.elements['sel-date'].value = '2026-09-26'; },
   'no loaded scope': f => { f.c.loadedGroup = ''; }
@@ -392,7 +395,8 @@ function photoFixture() {
   const elements = {};
   for (const id of ['sel-group', 'sel-date', 'photo-child', 'photo-all-dates', 'photo-show-hidden',
     'photo-files', 'photo-upload-mode', 'btn-photo-upload-main', 'photo-dup-modal',
-    'photo-dup-modal-summary', 'photo-dup-modal-list', 'photo-dup-modal-remember']) elements[id] = element();
+    'photo-dup-modal-summary', 'photo-dup-modal-list', 'photo-dup-modal-remember',
+    'btn-save-all', 'btn-send-email', 'btn-clear-all', 'btn-preview-email']) elements[id] = element();
   elements['sel-group'].value = '7';
   elements['sel-date'].value = '2026-09-25';
   elements['photo-child'].value = '42';
@@ -416,9 +420,12 @@ function photoFixture() {
     send(form) { this.form = form; requests.push(this); if (throwSend) throw new Error('send failed'); }
   }
   const c = context(composeFile, ['sendPhotosUploadGroup', 'capturePhotoScope', 'photoScopeMatches',
+    'captureComposeScope', 'composeScopeMatches', 'composeActionBusy', 'updateComposeControls',
     'setUploadBtnLoading', 'openPhotoDupDecisionModal', 'closePhotoDupDecisionModal'], {
     document: documentFor(elements), FormData: MockFormData, XMLHttpRequest: MockXHR,
-    CSRF: 'test-csrf', APP_BASE: '/test', childrenLoadVersion: 1,
+    CSRF: 'test-csrf', APP_BASE: '/test', childrenLoadVersion: 1, photoListVersion: 0,
+    loadedGroup: '7', loadedDate: '2026-09-25', attendanceReady: true, attendancePending: false,
+    messageRequestBusy: false, sendEmailConfirmPending: false, photoSingleUploadOperation: null,
     childrenData: [{ id: 42 }, { id: 43 }], photoGroupUploadOperation: null, photoActionBusy: false,
     photoDupDecisionResolver: null, photoDupRememberedAction: '',
     getSelectedGroupChildIds: () => selected.slice(),

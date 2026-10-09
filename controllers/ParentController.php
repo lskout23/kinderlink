@@ -83,6 +83,12 @@ class ParentController extends Controller {
         );
         $stmt->execute([$childId, $from, $to]);
         $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            $notes = $this->unpackDailyText($row['comments'] ?? '');
+            $row['observations'] = $notes['observations'];
+            $row['comments'] = $notes['comments'];
+        }
+        unset($row);
 
         // Find last available message date for empty-state hint.
         $lastDate = null;
@@ -95,5 +101,26 @@ class ParentController extends Controller {
         }
 
         $this->json(['rows' => $rows, 'last_message_date' => $lastDate]);
+    }
+
+    private function unpackDailyText(?string $value): array {
+        $raw = trim((string)$value);
+        if ($raw === '') {
+            return ['observations' => '', 'comments' => ''];
+        }
+
+        if (strpos($raw, '__ATH2__') !== 0) {
+            return ['observations' => $raw, 'comments' => ''];
+        }
+
+        $decoded = json_decode(substr($raw, 8), true);
+        if (!is_array($decoded)) {
+            return ['observations' => $raw, 'comments' => ''];
+        }
+
+        return [
+            'observations' => trim((string)($decoded['observations'] ?? '')),
+            'comments' => trim((string)($decoded['comments'] ?? '')),
+        ];
     }
 }

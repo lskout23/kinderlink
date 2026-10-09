@@ -189,7 +189,7 @@ CREATE TABLE `messages` (
   `sleep_minutes`  SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   `wc`             TINYINT(1) NOT NULL DEFAULT 0,
   `activities`     TEXT,                                  -- comma-separated activity names
-  `comments`       TEXT,                                  -- observations / free text
+  `comments`       TEXT,                                  -- packed observations/comments payload
   `email_status`   ENUM('pending','sent','failed','virtual') NOT NULL DEFAULT 'pending',
   `email_sent_at`  DATETIME,
   `created_by`     INT UNSIGNED,
@@ -342,7 +342,8 @@ INSERT INTO `email_template` (`template_html`, `subject`) VALUES
         <tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">Ύπνος:</td><td style="padding:6px;">|*sleep*| λεπτά</td></tr>
         <tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">WC:</td><td style="padding:6px;">|*WC_txt*|</td></tr>
         <tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">Δραστηριότητες:</td><td style="padding:6px;">|*activity*|</td></tr>
-        <tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">Παρατηρήσεις:</td><td style="padding:6px;">|*comments*|</td></tr>
+        <tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">Παρατηρήσεις:</td><td style="padding:6px;">|*observations*|</td></tr>
+<tr><td style="padding:6px;background:#eef3fb;font-weight:bold;">Σχόλια:</td><td style="padding:6px;">|*extra_comments*|</td></tr>
       </table>
       <br>
       <table style="width:100%;text-align:center;border:1px solid #ccc;">

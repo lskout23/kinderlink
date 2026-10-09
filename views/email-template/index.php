@@ -17,7 +17,8 @@ window.addEventListener('DOMContentLoaded', function() {
       <strong>Διαθέσιμα placeholders:</strong>
       |*name*| (Όνομα παιδιού) &bull;
       |*breakfast*| &bull; |*lunch*| &bull; |*mood*| &bull; |*sleep*| &bull;
-      |*WC_txt*| &bull; |*activity*| &bull; |*comments*|<br>
+      |*WC_txt*| &bull; |*activity*| &bull; |*observations*| &bull; |*extra_comments*|<br>
+      <strong>Συμβατότητα:</strong> |*comments*| = ίδιες τιμές με |*observations*|<br>
       <strong>Κείμενο χωρίς badge:</strong>
       |*breakfast_text*| &bull; |*lunch_text*| &bull; |*mood_text*|<br>
       <strong>Νέα (χρώματα):</strong>

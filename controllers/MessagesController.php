@@ -95,7 +95,7 @@ class MessagesController extends Controller {
         $stmt = $this->db->prepare(
             'SELECT c.id, c.first_name, c.last_name,
                     m.id AS msg_id, m.breakfast, m.lunch, m.mood, m.sleep_minutes,
-                    m.wc, m.activities AS activities_txt, m.comments, m.email_status
+                    m.wc, m.activities AS activities_txt, m.comments AS notes_blob, m.email_status
              FROM children c
              JOIN children_groups cg ON cg.child_id = c.id
              LEFT JOIN messages m ON m.child_id = c.id AND DATE(m.message_date) = ?
@@ -115,6 +115,10 @@ class MessagesController extends Controller {
             $attendanceReady = false;
         }
         foreach ($rows as &$row) {
+            $notes = $this->unpackDailyText($row['notes_blob'] ?? '');
+            $row['observations_txt'] = $notes['observations'];
+            $row['comments'] = $notes['comments'];
+            unset($row['notes_blob']);
             $row['is_absent'] = $attendanceReady ? in_array((int)$row['id'], $absentIds, true) : null;
         }
         unset($row);
@@ -175,7 +179,7 @@ class MessagesController extends Controller {
             if (!is_array($rows)) { $this->json(['error' => 'Μη έγκυρα δεδομένα.'], 422); return; }
 
             // Ασφάλεια για μεγάλα payloads: αν το max_input_vars ξεπεράστηκε, τα rows κόπηκαν σιωπηλά.
-            $expectedFieldsPerRow = 8; // child_id, breakfast, lunch, mood, sleep_minutes, wc, activities_txt, comments
+            $expectedFieldsPerRow = 9; // child_id, breakfast, lunch, mood, sleep_minutes, wc, activities_txt, observations_txt, comments
             $rowsCount = count($rows);
             $maxInputVars = (int)ini_get('max_input_vars');
             if ($maxInputVars > 0 && ($rowsCount * $expectedFieldsPerRow + 8) >= $maxInputVars) {
@@ -198,8 +202,8 @@ class MessagesController extends Controller {
                 $mood      = max(0, min(4, (int)($r['mood']      ?? 0)));
                 $sleep     = max(0, (int)($r['sleep_minutes'] ?? 0));
                 $wc        = !empty($r['wc']) ? 1 : 0;
-                $activities = trim($r['activities_txt'] ?? '');
-                $comments   = trim($r['comments'] ?? '');
+                $activities = trim((string)($r['activities_txt'] ?? ''));
+                $comments   = trim((string)($r['comments'] ?? ''));
 
                 if ($childId <= 0) continue;
                 if (!$this->childInGroup($childId, $groupId)) continue;
@@ -209,23 +213,32 @@ class MessagesController extends Controller {
                 // ανεξάρτητα από το τμήμα. Αν βρεθεί υπάρχον record, κάνουμε UPDATE και
                 // ενημερώνουμε και το group_id ώστε να μεταφέρεται με το παιδί.
                 $existing = $this->db->prepare(
-                    'SELECT id FROM messages WHERE child_id=? AND DATE(message_date)=?'
+                    'SELECT id, comments FROM messages WHERE child_id=? AND DATE(message_date)=?'
                 );
                 $existing->execute([$childId, $date]);
-                $msgId = $existing->fetchColumn();
+                $existingRow = $existing->fetch();
+                $msgId = $existingRow ? $existingRow['id'] : false;
+
+                if (array_key_exists('observations_txt', $r)) {
+                    $observations = trim((string)$r['observations_txt']);
+                } else {
+                    // Older clients (installed mobile app builds) do not send observations: keep the saved ones.
+                    $observations = $existingRow ? $this->unpackDailyText($existingRow['comments'] ?? '')['observations'] : '';
+                }
+                $notesPayload = $this->packDailyText($observations, $comments);
 
                 if ($msgId) {
                     $this->db->prepare(
                         'UPDATE messages SET group_id=?, breakfast=?, lunch=?, mood=?, sleep_minutes=?,
                          wc=?, activities=?, comments=?, email_status=\'pending\'
                          WHERE id=?'
-                    )->execute([$groupId, $breakfast, $lunch, $mood, $sleep, $wc, $activities, $comments, $msgId]);
+                    )->execute([$groupId, $breakfast, $lunch, $mood, $sleep, $wc, $activities, $notesPayload, $msgId]);
                 } else {
                     $this->db->prepare(
                         'INSERT INTO messages (child_id, group_id, message_date, breakfast, lunch, mood,
                          sleep_minutes, wc, activities, comments, email_status)
                          VALUES (?,?,?,?,?,?,?,?,?,?,\'pending\')'
-                    )->execute([$childId, $groupId, $date, $breakfast, $lunch, $mood, $sleep, $wc, $activities, $comments]);
+                    )->execute([$childId, $groupId, $date, $breakfast, $lunch, $mood, $sleep, $wc, $activities, $notesPayload]);
                 }
                 $saved++;
             }
@@ -311,6 +324,7 @@ class MessagesController extends Controller {
 
         $ratingLabels = ['0' => '-', '1' => 'Καθόλου', '2' => 'Μέτρια', '3' => 'Καλά', '4' => 'Πολύ Καλά'];
         $childName = $msg['first_name'] . ' ' . $msg['last_name'];
+        $notes = $this->unpackDailyText($msg['comments'] ?? '');
 
         $body = $this->buildEmailBody($tpl['template_html'], [
             '|*name*|'      => $childName,
@@ -328,8 +342,10 @@ class MessagesController extends Controller {
             '|*mood_badge*|'      => $this->ratingBadge($ratingLabels[$msg['mood']] ?? '-', $this->ratingColor((int)$msg['mood'])),
             '|*sleep*|'     => $msg['sleep_minutes'] > 0 ? (string)$msg['sleep_minutes'] : 'Όχι',
             '|*WC_txt*|'    => $msg['wc'] ? 'Ναι' : 'Όχι',
-            '|*activity*|'  => $msg['activities'],
-            '|*comments*|'  => $msg['comments'],
+            '|*activity*|'  => $this->dashIfEmpty($msg['activities'] ?? ''),
+            '|*observations*|' => $this->dashIfEmpty($notes['observations']),
+            '|*comments*|'  => $this->dashIfEmpty($notes['observations']),
+            '|*extra_comments*|' => $this->dashIfEmpty($notes['comments']),
         ]);
 
         $subject = str_replace('|*name*|', $childName, $tpl['subject']);
@@ -424,6 +440,7 @@ class MessagesController extends Controller {
             $breakfastColor = $this->ratingColor((int)$msg['breakfast']);
             $lunchColor = $this->ratingColor((int)$msg['lunch']);
             $moodColor = $this->ratingColor((int)$msg['mood']);
+            $notes = $this->unpackDailyText($msg['comments'] ?? '');
 
             $childName = $msg['first_name'] . ' ' . $msg['last_name'];
             $body = $this->buildEmailBody($tpl['template_html'], [
@@ -442,8 +459,10 @@ class MessagesController extends Controller {
                 '|*mood_badge*|'      => $this->ratingBadge($moodLabel, $moodColor),
                 '|*sleep*|'     => $msg['sleep_minutes'] > 0 ? (string)$msg['sleep_minutes'] : 'Όχι',
                 '|*WC_txt*|'    => $msg['wc'] ? 'Ναι' : 'Όχι',
-                '|*activity*|'  => $msg['activities'],
-                '|*comments*|'  => $msg['comments'],
+                '|*activity*|'  => $this->dashIfEmpty($msg['activities'] ?? ''),
+                '|*observations*|' => $this->dashIfEmpty($notes['observations']),
+                '|*comments*|'  => $this->dashIfEmpty($notes['observations']),
+                '|*extra_comments*|' => $this->dashIfEmpty($notes['comments']),
             ]);
             $subject = str_replace('|*name*|', $childName, $tpl['subject']);
 
@@ -2756,8 +2775,15 @@ class MessagesController extends Controller {
              LIMIT 200"
         );
         $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            $notes = $this->unpackDailyText($row['comments'] ?? '');
+            $row['observations'] = $notes['observations'];
+            $row['comments'] = $notes['comments'];
+        }
+        unset($row);
 
-        $this->json(['rows' => $stmt->fetchAll()]);
+        $this->json(['rows' => $rows]);
     }
 
     public function apiDelete(): void {
@@ -2904,6 +2930,51 @@ class MessagesController extends Controller {
             'error_detail' => $errorDetail,
             'result' => $result,
         ]);
+    }
+
+    private function dashIfEmpty(?string $value): string {
+        $value = (string)$value;
+        return trim($value) === '' ? '-' : $value;
+    }
+
+    private function packDailyText(string $observations, string $comments): string {
+        $observations = trim($observations);
+        $comments = trim($comments);
+        if ($observations === '' && $comments === '') {
+            return '';
+        }
+
+        $encoded = json_encode([
+            'observations' => $observations,
+            'comments' => $comments,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($encoded === false) {
+            return $observations;
+        }
+
+        return '__ATH2__' . $encoded;
+    }
+
+    private function unpackDailyText(?string $value): array {
+        $raw = trim((string)$value);
+        if ($raw === '') {
+            return ['observations' => '', 'comments' => ''];
+        }
+
+        if (strpos($raw, '__ATH2__') !== 0) {
+            return ['observations' => $raw, 'comments' => ''];
+        }
+
+        $decoded = json_decode(substr($raw, 8), true);
+        if (!is_array($decoded)) {
+            return ['observations' => $raw, 'comments' => ''];
+        }
+
+        return [
+            'observations' => trim((string)($decoded['observations'] ?? '')),
+            'comments' => trim((string)($decoded['comments'] ?? '')),
+        ];
     }
 
     private function normalizedPhotoIds(mixed $idsRaw): array {

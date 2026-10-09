@@ -1,4 +1,6 @@
 <?php $csrf = (new Controller)->csrfToken(); ?>
+<?php $isAdminView = Auth::isAdmin(); ?>
+<?php $tableColspan = $isAdminView ? 14 : 12; ?>
 
 <div class="section-box">
   <div class="section-title">Λίστα Μηνυμάτων</div>
@@ -44,6 +46,7 @@
             <th style="width:70px;text-align:center;">Ύπνος</th>
             <th style="width:50px;text-align:center;">WC</th>
             <th>Δραστηριότητες</th>
+            <th>Παρατηρήσεις</th>
             <th>Σχόλια</th>
             <th style="width:70px;text-align:center;">Email</th>
             <?php if (Auth::isAdmin()): ?>
@@ -52,7 +55,7 @@
           </tr>
         </thead>
         <tbody id="msg-list-tbody">
-          <tr><td colspan="12" class="text-center text-muted">Χρησιμοποιήστε τα φίλτρα για αναζήτηση.</td></tr>
+          <tr><td colspan="<?= $tableColspan ?>" class="text-center text-muted">Χρησιμοποιήστε τα φίλτρα για αναζήτηση.</td></tr>
         </tbody>
       </table>
     </div>
@@ -69,13 +72,14 @@
 var ratingLabels = {0:'-',1:'Καθόλου',2:'Μέτρια',3:'Καλά',4:'Πολύ Καλά'};
 var ratingColors  = {'0':'','1':'#e74c3c','2':'#e8a020','3':'#3498db','4':'#27ae60'};
 var isAdmin = <?= Auth::isAdmin() ? 'true' : 'false' ?>;
+var tableColspan = <?= (int)$tableColspan ?>;
 
 function searchMessages() {
   var gid  = document.getElementById('fl-group').value;
   var from = document.getElementById('fl-from').value;
   var to   = document.getElementById('fl-to').value;
 
-  document.getElementById('msg-list-tbody').innerHTML = '<tr><td colspan="12" class="text-center text-muted">Φόρτωση...</td></tr>';
+  document.getElementById('msg-list-tbody').innerHTML = '<tr><td colspan="'+tableColspan+'" class="text-center text-muted">Φόρτωση...</td></tr>';
 
   apiPost('/api/messages/search', {group_id:gid, from:from, to:to}, function(err, resp) {
     if (err||!resp||!resp.rows) { showToast('Σφάλμα.','danger'); return; }
@@ -96,13 +100,14 @@ function searchMessages() {
         '<td class="text-center" style="color:'+rColor(r.mood)+'">'     + (ratingLabels[r.mood]     ||'-') + '</td>' +
         '<td class="text-center">' + (r.sleep_minutes||'-') + '</td>' +
         '<td class="text-center">' + (r.wc ? '✅' : '☐') + '</td>' +
-        '<td style="font-size:11px;">' + esc(r.activities||'') + '</td>' +
-        '<td style="font-size:11px;">' + esc(r.comments||'') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.activities||'-') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.observations||'-') + '</td>' +
+        '<td style="font-size:11px;">' + esc(r.comments||'-') + '</td>' +
         '<td class="text-center"><span class="status-pill status-' + (Object.prototype.hasOwnProperty.call(statusLabel, r.email_status) ? r.email_status : 'unknown') + '">' + esc(statusLabel[r.email_status] || 'Άγνωστη') + '</span></td>' +
         (isAdmin ? '<td class="text-center"><button class="btn btn-sm btn-danger" aria-label="Διαγραφή μηνύματος" onclick="deleteMsg('+r.id+')">🗑️</button></td>' : '') +
       '</tr>';
     });
-    if (!resp.rows.length) tbody = '<tr><td colspan="12" class="text-center text-muted">Δεν βρέθηκαν εγγραφές.</td></tr>';
+    if (!resp.rows.length) tbody = '<tr><td colspan="'+tableColspan+'" class="text-center text-muted">Δεν βρέθηκαν εγγραφές.</td></tr>';
     document.getElementById('msg-list-tbody').innerHTML = tbody;
   });
 }
